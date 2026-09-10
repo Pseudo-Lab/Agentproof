@@ -60,26 +60,25 @@ AgentProof에서는 이런 질문을 직접 실험합니다.
 
 후반에는 다른 Runner의 실험을 직접 재현합니다. 우선 같은 조건에서 결과가 반복되는지 확인하고, 가능하다면 모델이나 환경을 바꿨을 때도 같은 방향의 결과가 유지되는지 살펴봅니다.
 
-## 🗺️ 16-Week Roadmap
+## 🗺️ 14-Week Roadmap (12주 활동 + 방학 2주)
 
-| Week | Focus |
-| --- | --- |
-| W01 | **OT & Shared Environment** — 프로젝트 목표와 운영 방식을 공유하고 공용 실험 환경을 세팅합니다. |
-| W02 | **Baseline & Common Intervention** — 공통 task에서 baseline과 동일 intervention을 실행하며 실험 사이클을 한 번 연습합니다. |
-| W03 | **Research Question & Experiment Design** — 각자의 연구 질문과 실험 설계 초안을 공유합니다. |
-| W04 | **Research Proposal Day** — 8명 전원이 질문, 가설, baseline, intervention, 평가 방법을 발표하고 설계를 확정합니다. |
-| W05 | **Implementation & First Experiment** — intervention을 구현하고 첫 개인 실험을 실행합니다. |
-| W06 | **Analysis & Peer Debugging** — 첫 결과를 분석하고 평가 방식과 blocker를 함께 점검합니다. |
-| W07 | **First Results Day A** — A그룹 4명이 첫 결과를 발표합니다. |
-| W08 | **First Results Day B** — B그룹 4명이 첫 결과를 발표하고 전체 결과를 Experiment Board에 반영합니다. |
-| W09 | **Ablation & Efficiency** — 성능 향상에 기여한 요소와 context/token/cost trade-off를 분석합니다. |
-| W10 | **Reliability & Repeated Runs** — 동일 조건을 반복 실행해 단발성 성공과 반복 신뢰성을 구분합니다. |
-| W11 | **Validation Day A** — A그룹 4명이 추가 실험과 검증 결과를 발표합니다. |
-| W12 | **Validation Day B** — B그룹 4명이 검증 결과를 발표하고 재현할 실험을 선정합니다. |
-| W13 | **Cross-Reproduction** — 다른 Runner의 실험을 같은 조건으로 재현합니다. |
-| W14 | **Reproduction Review & Final Experiment** — 원 실험과 재현 결과를 비교하고 마지막 검증을 진행합니다. |
-| W15 | **Integration & Final Rehearsal** — 결과를 통합하고 최종 발표를 리허설합니다. |
-| W16 | **Final Demo Day & OSS v1.0** — 각자의 연구 과정을 발표하고 프로젝트 전체 결과와 오픈소스 v1.0을 공개합니다. |
+| Week | Date | Focus |
+| --- | --- | --- |
+| W01 | 10/07 | **OT & Shared Environment** — 프로젝트 목표와 운영 방식을 공유하고 공용 실험 환경을 세팅합니다. |
+| W02 | 10/14 | **Baseline & Common Intervention** — 공통 task에서 baseline과 동일 intervention을 실행하며 실험 사이클을 한 번 연습합니다. |
+| W03 | 10/21 | **Research Question & Experiment Design** — 각자의 연구 질문과 실험 설계 초안을 공유합니다. |
+| W04 | 10/28 | **Research Proposal Day** — 8명 전원이 질문, 가설, baseline, intervention, 평가 방법을 발표하고 설계를 확정합니다. |
+| W05 | 11/04 | **Implementation & First Experiment** — intervention을 구현하고 첫 개인 실험을 실행합니다. |
+| W06 | 11/11 | **Analysis & Peer Debugging** — 첫 결과를 분석하고 평가 방식과 blocker를 함께 점검합니다. |
+| W07 | 11/18 | **First Results Day A** — A그룹 4명이 첫 결과를 발표합니다. |
+| W08 | 11/25 | **First Results Day B** — B그룹 4명이 첫 결과를 발표하고 전체 결과를 Experiment Board에 반영합니다. |
+| W09 | 12/02 | **Ablation & Efficiency** — 성능 향상에 기여한 요소와 context/token/cost trade-off를 분석합니다. |
+| W10 | 12/09 | **Reliability & Repeated Runs** — 동일 조건을 반복 실행해 단발성 성공과 반복 신뢰성을 구분합니다. |
+| W11 | 12/16 | **Validation Day A** — A그룹 4명이 추가 실험과 검증 결과를 발표합니다. |
+| — | 12/23 | **방학** |
+| — | 12/30 | **방학** |
+| W12 | 01/06 | **Validation Day B & Cross-Reproduction** — B그룹 검증 결과 발표 후 다른 Runner의 실험을 같은 조건으로 재현합니다. |
+| 🎉 | 01/09 | **Grand Gathering & OSS v1.0** — 각자의 연구 과정을 발표하고 프로젝트 전체 결과와 오픈소스 v1.0을 공개합니다. |
 
 ## 👥 Team
 
@@ -110,7 +109,12 @@ Agent 개발이나 연구 경험은 필수가 아닙니다. Python과 GitHub를 
 
 ## 📅 Schedule
 
-- **Duration**: 16 weeks
+- **모집 시작**: 2025년 9월 18일
+- **모집 마감**: 2025년 9월 28일
+- **선정 발표**: 2025년 10월 1일
+- **활동 시작**: 2025년 10월 4일
+- **활동 종료**: 2026년 1월 9일 (Grand Gathering)
+- **Duration**: 12주 활동 + 방학 2주
 - **Meeting**: Every Tuesday, 21:00–22:00 KST
 - **Format**: Pseudo Lab Discord
 - **Team Size**: Builder 1 + Runners up to 8
