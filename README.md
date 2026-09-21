@@ -10,8 +10,26 @@
 ![Forks](https://img.shields.io/github/forks/Pseudo-Lab/Agentproof)
 ![Pull Requests](https://img.shields.io/github/issues-pr/Pseudo-Lab/Agentproof)
 ![Issues](https://img.shields.io/github/issues/Pseudo-Lab/Agentproof)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+
+**프로젝트 페이지:** https://pseudo-lab.com/projects/a6584971-2f7c-47a5-b9c4-42ae174bf8db
 
 </div>
+
+
+## 러너 모집 안내
+
+| 항목 | 내용 |
+| --- | --- |
+| 모집 | 2026년 9월 18일 ~ 9월 28일 |
+| 선정 발표 | 2026년 10월 1일 |
+| 활동 | 2026년 10월 4일 ~ 2027년 1월 9일 (Grand Gathering) |
+| 기간 | 시즌 프레임 16주 / 실활동 14주 (활동 12주 + 방학 2주) |
+| 정원 | Builder 1 + Runner 최대 8 |
+| 모임 | 매주 화요일 21:00–22:00 KST, Discord |
+| 부담 | 모임 1시간 + 주간 외부 3–5시간 |
+
+지원: [가짜연구소 프로젝트 페이지](https://pseudo-lab.com/projects/a6584971-2f7c-47a5-b9c4-42ae174bf8db)
 
 ## ✨ Why this project?
 
@@ -29,6 +47,17 @@ AgentProof에서는 이런 질문을 직접 실험합니다.
 
 각 Runner는 하나의 질문을 자신의 연구 질문으로 구체화하고, baseline과 intervention을 직접 설계해 검증합니다.
 
+### 비슷한 S13 프로젝트와의 차이
+
+| 프로젝트 | 한 줄 |
+| --- | --- |
+| All About Harness | Agent **구조**를 분해·구현 |
+| Agent 경험치 연구소 | Memory vs Skill 변경의 **한 가지 RQ**를 깊게 |
+| 나만의 AI Agent 만들기 | 개인 Agent **제작·Demo** |
+| **AgentProof** | 여러 개입을 **동일 평가 체계**로 비교하고 **교차 재현** |
+
+핵심: “좋아 보인다”가 아니라 **어떤 조건에서 실제로 개선되는지**를 증명합니다. 자세한 포지셔닝은 [`docs/POSITIONING.md`](docs/POSITIONING.md).
+
 ## 🎯 Goal
 
 이번 시즌의 목표는 **"좋아 보인다"를 넘어, 어떤 개입이 어떤 조건에서 실제로 도움이 되는지 재현 가능한 실험으로 남기는 것**입니다.
@@ -39,12 +68,12 @@ AgentProof에서는 이런 질문을 직접 실험합니다.
 - [ ] **Milestone 4** — 다른 Runner의 실험 cross-reproduction
 - [ ] **Milestone 5** — Experiment Board와 OSS v1.0 공개
 
+성공 기준(정량)은 [`docs/SUCCESS_CRITERIA.md`](docs/SUCCESS_CRITERIA.md)를 따릅니다.
+
 ## 📦 Expected Outcome
 
-최종적으로 다음과 같은 결과물을 만드는 것을 목표로 합니다.
-
 - Runner별 재현 가능한 Agent Evaluation 실험
-- 실험 질문·설계·결과를 정리한 Experiment Card
+- 실험 질문·설계·결과를 정리한 Experiment Card ([템플릿](templates/EXPERIMENT_CARD.example.md))
 - 결과를 비교하는 Experiment Board
 - 공통 evaluation harness
 - baseline–intervention 비교, reliability·context·cost 분석, cross-reproduction 결과를 담은 통합 리포트
@@ -60,39 +89,62 @@ AgentProof에서는 이런 질문을 직접 실험합니다.
 
 후반에는 다른 Runner의 실험을 직접 재현합니다. 우선 같은 조건에서 결과가 반복되는지 확인하고, 가능하다면 모델이나 환경을 바꿨을 때도 같은 방향의 결과가 유지되는지 살펴봅니다.
 
-## 🗺️ 14-Week Roadmap (12주 활동 + 방학 2주)
+### 대표 연구 질문 예시
+
+1. Memory 추가가 성공률은 높이지만 context cost를 얼마나 늘리는가?
+2. MCP tool 추가가 task success와 latency에 미치는 영향은?
+3. `SKILL.md`의 절차 명시가 반복 실행 reliability를 개선하는가?
+4. Harness retry가 단순 재시도보다 비용 효율적인가?
+
+## ✅ Success Criteria (요약)
+
+| 구분 | 기준 |
+| --- | --- |
+| 개인 | RQ 1개, Experiment Card ≥1, baseline/intervention **≥5회** 반복, cross-reproduction 1회 |
+| 공통 | 공통 task ≥3, harness + Board, raw log 필수 필드(success/reliability/token/cost) |
+| 운영 | 매주 GitHub에 코드·설정·결과·의사결정 중 ≥1 기록 |
+| v1.0 | 신규 기여자가 README만으로 baseline 1회 재현 가능 |
+
+전체 체크리스트: [`docs/SUCCESS_CRITERIA.md`](docs/SUCCESS_CRITERIA.md)
+
+## 👥 Roles
+
+역할 상세: [`docs/ROLES.md`](docs/ROLES.md)
+
+| Role | Focus |
+| --- | --- |
+| Experiment Design | RQ · 가설 · metric |
+| Agent / Harness Engineering | baseline · intervention 구현 |
+| Evaluation & Metrics | success · reliability · cost |
+| Data / Log Analysis | 표 · 해석 |
+| Reproduction QA | 교차 재현 |
+| Documentation & Presentation | Card · Board · 발표 |
+| Open-source Release | README · 릴리스 |
+
+## 🗺️ Schedule frame
+
+- **시즌 프레임:** 16주 (사이트 헤더 기준)
+- **실활동:** 14주 = 활동 12주 + 연말 방학 2주
+- **W16:** 최종 릴리스 후 회고 · 비동기 정리
 
 | Week | Date | Focus |
 | --- | --- | --- |
-| W01 | 10/07 | **OT & Shared Environment** — 프로젝트 목표와 운영 방식을 공유하고 공용 실험 환경을 세팅합니다. |
-| W02 | 10/14 | **Baseline & Common Intervention** — 공통 task에서 baseline과 동일 intervention을 실행하며 실험 사이클을 한 번 연습합니다. |
-| W03 | 10/21 | **Research Question & Experiment Design** — 각자의 연구 질문과 실험 설계 초안을 공유합니다. |
-| W04 | 10/28 | **Research Proposal Day** — 8명 전원이 질문, 가설, baseline, intervention, 평가 방법을 발표하고 설계를 확정합니다. |
-| W05 | 11/04 | **Implementation & First Experiment** — intervention을 구현하고 첫 개인 실험을 실행합니다. |
-| W06 | 11/11 | **Analysis & Peer Debugging** — 첫 결과를 분석하고 평가 방식과 blocker를 함께 점검합니다. |
-| W07 | 11/18 | **First Results Day A** — A그룹 4명이 첫 결과를 발표합니다. |
-| W08 | 11/25 | **First Results Day B** — B그룹 4명이 첫 결과를 발표하고 전체 결과를 Experiment Board에 반영합니다. |
-| W09 | 12/02 | **Ablation & Efficiency** — 성능 향상에 기여한 요소와 context/token/cost trade-off를 분석합니다. |
-| W10 | 12/09 | **Reliability & Repeated Runs** — 동일 조건을 반복 실행해 단발성 성공과 반복 신뢰성을 구분합니다. |
-| W11 | 12/16 | **Validation Day A** — A그룹 4명이 추가 실험과 검증 결과를 발표합니다. |
+| W01 | 10/07 | **OT & Shared Environment** — 공용 실험 환경 세팅 |
+| W02 | 10/14 | **Baseline & Common Intervention** — 공통 task로 실험 사이클 연습 |
+| W03 | 10/21 | **Research Question & Experiment Design** |
+| W04 | 10/28 | **Research Proposal Day** — 전원 설계 확정 |
+| W05 | 11/04 | **Implementation & First Experiment** |
+| W06 | 11/11 | **Analysis & Peer Debugging** |
+| W07 | 11/18 | **First Results Day A** |
+| W08 | 11/25 | **First Results Day B** + Experiment Board 반영 |
+| W09 | 12/02 | **Ablation & Efficiency** |
+| W10 | 12/09 | **Reliability & Repeated Runs** |
+| W11 | 12/16 | **Validation Day A** |
 | — | 12/23 | **방학** |
 | — | 12/30 | **방학** |
-| W12 | 01/06 | **Validation Day B & Cross-Reproduction** — B그룹 검증 결과 발표 후 다른 Runner의 실험을 같은 조건으로 재현합니다. |
-| 🎉 | 01/09 | **Grand Gathering & OSS v1.0** — 각자의 연구 과정을 발표하고 프로젝트 전체 결과와 오픈소스 v1.0을 공개합니다. |
-
-## 👥 Team
-
-| Role | Name | Focus |
-| --- | --- | --- |
-| 🧭 Builder | Hyeonseo Jang | Project direction & experiment framework |
-| 🏃 Runner | Recruiting | |
-| 🏃 Runner | Recruiting | |
-| 🏃 Runner | Recruiting | |
-| 🏃 Runner | Recruiting | |
-| 🏃 Runner | Recruiting | |
-| 🏃 Runner | Recruiting | |
-| 🏃 Runner | Recruiting | |
-| 🏃 Runner | Recruiting | |
+| W12 | 01/06 | **Validation Day B & Cross-Reproduction** |
+| 🎉 | 01/09 | **Grand Gathering & OSS v1.0** |
+| W16 | 시즌 프레임 | 회고 · 문서 정리 · 비동기 팔로업 |
 
 ## 🙋 Who Can Join?
 
@@ -103,21 +155,35 @@ Agent 개발이나 연구 경험은 필수가 아닙니다. Python과 GitHub를 
 - "이걸 붙이면 진짜 좋아질까?"를 직접 확인해보고 싶은 분
 - 코드를 만드는 데서 끝내지 않고 결과를 수치와 기록으로 설명하고 싶은 분
 - 예상과 다른 결과도 숨기지 않고 함께 파고드는 것을 좋아하는 분
-- 하나의 연구 질문을 16주 동안 끝까지 실험해보고 싶은 분
+- 하나의 연구 질문을 시즌 동안 끝까지 실험해보고 싶은 분
+
+### 온보딩 (첫 주)
+
+- Discord 참가 + 화요일 21:00–22:00 **KST** 캘린더 등록
+- 이 repo fork/clone, Python 3.10+ 확인
+- API 키·비용: 개인 키 사용 시 **주간 예산 상한**을 Builder와 합의 (팀 공용 키 정책은 OT에서 안내)
+- 권장: `templates/EXPERIMENT_CARD.example.md` 복사해 연습 Card 1장 작성
+- 주간 외부 작업 권장: **3–5시간** (모임 1시간 별도)
 
 모든 Runner는 매주 코드, 실험 설정, 결과, 의사결정 중 최소 하나를 GitHub에 기록합니다.
 
-## 📅 Schedule
+## 📅 Recruitment & Meeting
 
-- **모집 시작**: 2025년 9월 18일
-- **모집 마감**: 2025년 9월 28일
-- **선정 발표**: 2025년 10월 1일
-- **활동 시작**: 2025년 10월 4일
-- **활동 종료**: 2026년 1월 9일 (Grand Gathering)
-- **Duration**: 12주 활동 + 방학 2주
-- **Meeting**: Every Tuesday, 21:00–22:00 KST
-- **Format**: Pseudo Lab Discord
-- **Team Size**: Builder 1 + Runners up to 8
+- **Meeting:** Every Tuesday, 21:00–22:00 KST
+- **Format:** Pseudo Lab Discord
+- **Team Size:** Builder 1 + Runners up to 8
+- **Duration:** 시즌 16주 프레임 / 실활동 14주(12+방학2)
+
+모집·선정 일정은 [프로젝트 페이지](https://pseudo-lab.com/projects/a6584971-2f7c-47a5-b9c4-42ae174bf8db) 공지를 따릅니다.
+
+## 📁 Repo layout
+
+```
+docs/           # 성공 기준, 역할, 포지셔닝
+templates/      # Experiment Card 예시
+experiments/    # Runner별 실험 (시즌 중 추가)
+harness/        # 공용 evaluation harness (시즌 중 추가)
+```
 
 ## Acknowledgement 🙏
 
@@ -139,4 +205,4 @@ Built around the values of **Sharing, Motivation, and Collaborative Joy**, Pseud
 
 ## License 🗞
 
-This project is licensed under the MIT License.
+This project is licensed under the [MIT License](LICENSE).
