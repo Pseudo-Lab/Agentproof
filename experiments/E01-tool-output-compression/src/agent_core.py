@@ -58,9 +58,16 @@ def estimate_tokens(messages: list[dict]) -> int:
 # ---------------------------------------------------------------- 과제와 채점
 
 def build_task_workdir(task: dict, workdir: Path) -> None:
-    """에이전트에게 보여 줄 저장소를 만든다. 숨겨진 테스트와 정답은 넣지 않는다."""
+    """에이전트에게 보여 줄 저장소를 만든다. 숨겨진 테스트와 정답은 넣지 않는다.
+
+    repo 형식은 두 가지다. 단일 파일(`file`, `content`, 1순위 묶음)과 여러 파일(`files`, 2순위 포장판).
+    """
     workdir.mkdir(parents=True, exist_ok=True)
-    (workdir / task["repo"]["file"]).write_text(task["repo"]["content"])
+    files = task["repo"].get("files") or {task["repo"]["file"]: task["repo"]["content"]}
+    for rel, content in files.items():
+        path = workdir / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
     (workdir / "ISSUE.md").write_text(task["issue"] + "\n")
 
 
@@ -75,13 +82,42 @@ def grade(task: dict, workdir: Path, timeout: float = 30.0) -> dict:
     테스트는 에이전트 작업 디렉터리 밖(임시 디렉터리)에서, 하네스가 보관한 원본 테스트 코드로 돌린다.
     에이전트가 저장소 안 파일을 어떻게 고쳤든 테스트 코드 자체는 영향받지 않는다.
     """
+    hidden = task["hidden_test"]
+    if hidden.get("import_from"):
+        return _grade_package(task, workdir, timeout)
     target = workdir / task["repo"]["file"]
     if not target.exists():
         return {"status": "failure", "reason": "solution file missing", "returncode": None, "output": ""}
-    hidden = task["hidden_test"]
     program = (hidden.get("imports", "") + "\n" + hidden.get("setup", "") + "\n"
                + target.read_text() + "\n" + hidden["test"] + f"\ncheck({hidden['entry_point']})\n")
     with tempfile.TemporaryDirectory() as tmp:
+        script = Path(tmp) / "run_hidden_test.py"
+        script.write_text(program)
+        try:
+            p = subprocess.run([sys.executable, "-I", str(script)], cwd=tmp, capture_output=True,
+                               text=True, timeout=timeout, errors="replace")
+        except subprocess.TimeoutExpired:
+            return {"status": "failure", "reason": "hidden test timed out", "returncode": None, "output": ""}
+    ok = p.returncode == 0
+    return {"status": "success" if ok else "failure",
+            "reason": "all hidden tests passed" if ok else "hidden test failed or crashed",
+            "returncode": p.returncode, "output": (p.stdout + p.stderr)[-2000:]}
+
+
+def _grade_package(task: dict, workdir: Path, timeout: float) -> dict:
+    """포장판 채점: 최종 저장소를 임시 디렉터리로 복사하고, 원본 테스트가 `from <패키지> import <함수>` 로 불러 쓴다.
+
+    테스트 코드는 하네스가 보관한 원본이며 import 뒤에 정의되므로, 저장소 안에서 check 를 재정의해도 덮어쓴다.
+    """
+    import shutil
+    hidden = task["hidden_test"]
+    with tempfile.TemporaryDirectory() as tmp:
+        repo_copy = Path(tmp) / "repo"
+        shutil.copytree(workdir, repo_copy, ignore=shutil.ignore_patterns("__pycache__"))
+        program = (f"import sys\nsys.path.insert(0, {str(repo_copy)!r})\n"
+                   + hidden.get("imports", "") + "\n" + hidden.get("setup", "") + "\n"
+                   + f"from {hidden['import_from']} import {hidden['entry_point']}\n"
+                   + hidden["test"] + f"\ncheck({hidden['entry_point']})\n")
         script = Path(tmp) / "run_hidden_test.py"
         script.write_text(program)
         try:

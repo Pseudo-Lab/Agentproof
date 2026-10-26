@@ -111,6 +111,45 @@ class GraderTests(unittest.TestCase):
             self.assertEqual(sorted(p.name for p in Path(d).iterdir()), ["ISSUE.md", "solution.py"])
 
 
+PKG_TASK = {
+    "task_id": "T-pkg",
+    "issue": "add in toolkit should add",
+    "repo": {"files": {"toolkit/__init__.py": "from .core import *\nfrom .misc import *\n",
+                       "toolkit/core.py": "def add(a, b):\n    return a - b\n",
+                       "toolkit/misc.py": "def mul(a, b):\n    return a * b\n",
+                       "README.md": "# toolkit\n"},
+             "target_file": "toolkit/core.py", "package": "toolkit"},
+    "hidden_test": {"imports": "", "setup": "", "entry_point": "add", "import_from": "toolkit",
+                    "test": "def check(f):\n    assert f(1, 2) == 3\n"},
+}
+
+
+class PackageGraderTests(unittest.TestCase):
+    def _grade_with(self, path, content):
+        with tempfile.TemporaryDirectory() as d:
+            wd = Path(d)
+            ac.build_task_workdir(PKG_TASK, wd)
+            (wd / path).write_text(content)
+            return ac.grade(PKG_TASK, wd)
+
+    def test_workdir_layout(self):
+        with tempfile.TemporaryDirectory() as d:
+            ac.build_task_workdir(PKG_TASK, Path(d))
+            names = sorted(str(p.relative_to(d)) for p in Path(d).rglob("*") if p.is_file())
+            self.assertEqual(names, ["ISSUE.md", "README.md", "toolkit/__init__.py", "toolkit/core.py", "toolkit/misc.py"])
+
+    def test_buggy_fails_fixed_passes(self):
+        self.assertEqual(self._grade_with("toolkit/core.py", "def add(a, b):\n    return a - b\n")["status"], "failure")
+        self.assertEqual(self._grade_with("toolkit/core.py", "def add(a, b):\n    return a + b\n")["status"], "success")
+
+    def test_broken_import_fails(self):
+        self.assertEqual(self._grade_with("toolkit/misc.py", "def mul(a, b)\n")["status"], "failure")
+
+    def test_tamper_check_in_package_fails(self):
+        r = self._grade_with("toolkit/core.py", "def add(a, b):\n    return a - b\ndef check(f):\n    pass\n")
+        self.assertEqual(r["status"], "failure")
+
+
 class SanitizeTests(unittest.TestCase):
     def test_replaces_longest_first_and_keeps_json_valid(self):
         pairs = [("/home/alice/repo", "<repo>"), ("/home/alice", "~"), ("alice", "user")]

@@ -93,14 +93,20 @@ def make_model(cfg: dict, mode: str, seed: int, task: dict, condition: str):
 def mock_outputs(task: dict, condition: str) -> list[dict]:
     """mock 전용 fixture. 도구 출력 7개를 만들어 압축이 작동하게 하고, intervention 만 정답을 쓴다.
     이 차이는 사람이 정한 fixture 이며 개입 효과의 증거가 아니다."""
-    src = task["repo"]["content"]
+    repo = task["repo"]
+    target = repo.get("target_file") or repo["file"]
+    src = (repo.get("files") or {repo.get("file"): repo.get("content")})[target]
     if condition == "intervention":
-        head, _, _ = src.partition('\n    """')
-        doc = src.split('\n    """', 1)[1].split('"""\n', 1)[0]
-        src = head + '\n    """' + doc + '"""\n' + task["reference"]["canonical_solution"]
-    write = "cat > solution.py <<'PYEOF'\n" + src + "PYEOF"
-    cmds = ["ls -la", "cat ISSUE.md", "cat solution.py", "grep -n def solution.py", "python3 -c 'import solution'",
-            "cat solution.py", write, "python3 -c 'import solution; print(\"ok\")'",
+        ref = task["reference"]
+        if "buggy_solution" in ref:
+            src = src.replace(ref["buggy_solution"].strip("\n"), ref["canonical_solution"].strip("\n"), 1)
+        else:
+            head, _, _ = src.partition('\n    """')
+            doc = src.split('\n    """', 1)[1].split('"""\n', 1)[0]
+            src = head + '\n    """' + doc + '"""\n' + ref["canonical_solution"]
+    write = f"cat > {target} <<'PYEOF'\n" + src + "PYEOF"
+    cmds = ["ls -la", "cat ISSUE.md", f"cat {target}", f"grep -n def {target}", "python3 -c 'print(1)'",
+            f"cat {target}", write, "python3 -c 'print(\"ok\")'",
             "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"]
     return [make_output(f"THOUGHT: step.\n\n```mswea_bash_command\n{c}\n```", [{"command": c}], cost=0.0) for c in cmds]
 
@@ -137,7 +143,8 @@ def run_trial(task: dict, condition: str, cfg: dict, repeat: int, mode: str, out
 
     exit_status = (agent.messages[-1].get("extra") or {}).get("exit_status", "") if agent.messages else ""
     graded = ac.grade(task, workdir) if infra_error is None else {"status": "error", "reason": infra_error}
-    final_snapshot = {p.name: p.read_text(errors="replace") for p in workdir.iterdir() if p.is_file()}
+    final_snapshot = {str(p.relative_to(workdir)): p.read_text(errors="replace") for p in sorted(workdir.rglob("*"))
+                      if p.is_file() and "__pycache__" not in p.parts and p.stat().st_size < 200_000}
     shutil.rmtree(workdir, ignore_errors=True)
 
     # 토큰: mini 가 assistant 메시지 extra.response.usage 에 남긴 값을 합산
@@ -231,8 +238,8 @@ def main():
     out = EXPERIMENT / "results" / args.stage / args.run_id
     if out.exists() and not args.resume:
         ap.error(f"{out} 이 이미 있습니다. 새 run-id 를 쓰거나 --resume")
+    commit, dirty = git_info()  # 결과 폴더를 만들기 전에 읽어야 미추적 결과가 dirty 로 잡히지 않는다
     out.mkdir(parents=True, exist_ok=True)
-    commit, dirty = git_info()
     m = cfgs["baseline"]["model"]
     manifest = {
         "experiment_id": EXPERIMENT.name, "run_id": args.run_id, "stage": args.stage,
