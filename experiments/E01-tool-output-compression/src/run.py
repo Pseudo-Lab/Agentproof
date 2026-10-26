@@ -70,13 +70,14 @@ def git_info() -> tuple[str, bool]:
 
 # ---------------------------------------------------------------- 모델 생성
 
-def make_model(cfg: dict, mode: str, seed: int, task: dict, condition: str):
+def make_model(cfg: dict, mode: str, seed: int, task: dict, condition: str, templates: dict | None = None):
+    templates = templates or MINI_CONFIG
     comp = cfg["compression"]
     common = {"compression_enabled": comp["enabled"],
               "keep_last_observations": comp.get("keep_last_observations", 5),
               "placeholder": comp.get("placeholder", "(출력 {chars}자 생략됨)"),
               "context_tokens": cfg["limits"]["context_tokens"],
-              "observation_template": MINI_CONFIG["model"]["observation_template"]}
+              "observation_template": templates["model"]["observation_template"]}
     if mode == "mock":
         return CompressingDeterministicModel(outputs=mock_outputs(task, condition), cost_per_call=0.0, **common)
     m = cfg["model"]
@@ -86,7 +87,7 @@ def make_model(cfg: dict, mode: str, seed: int, task: dict, condition: str):
         model_kwargs={"api_base": api_base, "think": m["think"], "seed": seed, "drop_params": True,
                       "timeout": cfg["limits"].get("model_timeout_seconds", 600), **m["options"]},
         cost_tracking="ignore_errors",
-        format_error_template=MINI_CONFIG["model"]["format_error_template"],
+        format_error_template=templates["model"]["format_error_template"],
         **common)
 
 
@@ -113,22 +114,33 @@ def mock_outputs(task: dict, condition: str) -> list[dict]:
 
 # ---------------------------------------------------------------- 한 번의 시도
 
-def run_trial(task: dict, condition: str, cfg: dict, repeat: int, mode: str, out_dir: Path, run_id: str) -> dict:
+def run_trial(task: dict, condition: str, cfg: dict, repeat: int, mode: str, out_dir: Path, run_id: str,
+              dataset_name: str | None = None) -> dict:
     limits = cfg["limits"]
     seed = cfg["seeds"][repeat - 1]
     traj_path = out_dir / "trajectories" / task["task_id"] / condition / f"repeat-{repeat}.json"
     traj_path.parent.mkdir(parents=True, exist_ok=True)
 
-    workdir = Path(tempfile.mkdtemp(prefix=f"e01-{task['task_id']}-{condition}-"))
-    ac.build_task_workdir(task, workdir)
-    if cfg["sandbox"]["kind"] != "local":
-        raise SystemExit("이 실행기는 아직 sandbox.kind=local 만 지원한다. Docker 는 본 실험 전에 추가한다.")
-    env = LocalEnvironment(cwd=str(workdir), timeout=limits["command_timeout_seconds"],
-                           env=MINI_CONFIG["environment"]["env"])
-    model = make_model(cfg, mode, seed, task, condition)
+    is_swe = task.get("kind") == "swebench"
+    if is_swe:
+        if mode != "real":
+            raise SystemExit("SWE-bench 과제는 mock 모드를 지원하지 않는다(Docker 이미지 필요).")
+        import swebench_support as sws
+        templates = sws.SWEBENCH_CONFIG
+        workdir = None
+        env = sws.make_env(task, limits["command_timeout_seconds"])
+    else:
+        templates = MINI_CONFIG
+        workdir = Path(tempfile.mkdtemp(prefix=f"e01-{task['task_id']}-{condition}-"))
+        ac.build_task_workdir(task, workdir)
+        if cfg["sandbox"]["kind"] != "local":
+            raise SystemExit("HumanEvalFix 계열 과제는 sandbox.kind=local 만 지원한다.")
+        env = LocalEnvironment(cwd=str(workdir), timeout=limits["command_timeout_seconds"],
+                               env=MINI_CONFIG["environment"]["env"])
+    model = make_model(cfg, mode, seed, task, condition, templates)
     agent = DefaultAgent(model, env,
-                         system_template=MINI_CONFIG["agent"]["system_template"],
-                         instance_template=MINI_CONFIG["agent"]["instance_template"],
+                         system_template=templates["agent"]["system_template"],
+                         instance_template=templates["agent"]["instance_template"],
                          step_limit=limits["max_turns"], cost_limit=0,
                          wall_time_limit_seconds=limits["wall_clock_seconds"],
                          max_consecutive_format_errors=limits["max_consecutive_format_errors"],
@@ -136,16 +148,37 @@ def run_trial(task: dict, condition: str, cfg: dict, repeat: int, mode: str, out
     t0 = time.monotonic()
     infra_error = None
     try:
-        agent.run(task=ac.task_text(task))
+        agent.run(task=task["issue"] if is_swe else ac.task_text(task))
     except Exception as e:  # mini 가 처리하지 못한 예외 = 인프라 오류 (모델 서버 다운 등)
         infra_error = f"{type(e).__name__}: {str(e)[:300]}"
     elapsed_ms = (time.monotonic() - t0) * 1000
 
-    exit_status = (agent.messages[-1].get("extra") or {}).get("exit_status", "") if agent.messages else ""
-    graded = ac.grade(task, workdir) if infra_error is None else {"status": "error", "reason": infra_error}
-    final_snapshot = {str(p.relative_to(workdir)): p.read_text(errors="replace") for p in sorted(workdir.rglob("*"))
-                      if p.is_file() and "__pycache__" not in p.parts and p.stat().st_size < 200_000}
-    shutil.rmtree(workdir, ignore_errors=True)
+    last_extra = (agent.messages[-1].get("extra") or {}) if agent.messages else {}
+    exit_status = last_extra.get("exit_status", "")
+    patch_source = None
+    if is_swe:
+        if exit_status == "Submitted":
+            patch, patch_source = last_extra.get("submission", ""), "submitted"
+        else:
+            # 설계: 제출 없이 한도로 끝나도 최종 상태를 채점한다. 추적 파일의 변경만 뜬다(새로 만든 재현 스크립트 제외).
+            patch, patch_source = "", "workdir_diff"
+            if infra_error is None:
+                try:
+                    out = env.execute({"command": "git -c core.fileMode=false diff"}, timeout=120)
+                    patch = out.get("output", "") if out.get("returncode") == 0 else ""
+                except Exception:
+                    patch = ""
+        env.cleanup()
+        graded = (sws.grade(task, patch, dataset_name, f"{run_id}-{task['task_id']}-{condition}-{repeat}")
+                  if infra_error is None else {"status": "error", "reason": infra_error})
+        final_snapshot = {"submission.patch": patch, "patch_source": patch_source}
+    else:
+        graded = ac.grade(task, workdir) if infra_error is None else {"status": "error", "reason": infra_error}
+        final_snapshot = {str(p.relative_to(workdir)): p.read_text(errors="replace") for p in sorted(workdir.rglob("*"))
+                          if p.is_file() and "__pycache__" not in p.parts and p.stat().st_size < 200_000}
+        shutil.rmtree(workdir, ignore_errors=True)
+    if graded.get("status") == "error" and infra_error is None:
+        infra_error = graded.get("reason")
 
     # 토큰: mini 가 assistant 메시지 extra.response.usage 에 남긴 값을 합산
     in_tok = out_tok = 0
@@ -206,8 +239,11 @@ def run_trial(task: dict, condition: str, cfg: dict, repeat: int, mode: str, out
                          "tool_outputs_total": tool_outputs_total,
                          "repetition_detected": repetition,
                          "grader": graded.get("reason"), "grader_returncode": graded.get("returncode"),
-                         "agent_framework": f"mini-swe-agent {MINI_VERSION} DefaultAgent + LocalEnvironment, "
-                                            f"config/mini_textbased.yaml templates"}}
+                         "patch_source": patch_source,
+                         "agent_framework": (f"mini-swe-agent {MINI_VERSION} DefaultAgent + DockerEnvironment, "
+                                             f"config/benchmarks/swebench_backticks.yaml templates; graded by swebench harness")
+                         if is_swe else (f"mini-swe-agent {MINI_VERSION} DefaultAgent + LocalEnvironment, "
+                                         f"config/mini_textbased.yaml templates")}}
 
 
 # ---------------------------------------------------------------- 메인
@@ -281,7 +317,8 @@ def main():
                     if (cond, task["task_id"], repeat) in done:
                         continue
                     t = time.monotonic()
-                    row = run_trial(task, cond, cfgs[cond], repeat, args.mode, out, args.run_id)
+                    row = run_trial(task, cond, cfgs[cond], repeat, args.mode, out, args.run_id,
+                                    dataset_name=(tasks_doc.get("source") or {}).get("dataset"))
                     stream.write(json.dumps(row, ensure_ascii=False) + "\n"); stream.flush()
                     e = row["evidence"]
                     print(f"[{repeat}/{repeats}] {task['task_id']:>12} {cond:>12} {row['status']:>8} "

@@ -142,6 +142,19 @@
 - 반복 탐지기의 한계: 위 루프는 "연속한 두 응답" 의 Rouge-L 이 0.03~0.20 이라 사전 정의한 탐지(≥ 0.8)에 걸리지 않았다. 한 칸 건너 비교하면 0.92, 1.0 이다. 두 동작이 번갈아 도는 주기 2 루프를 놓치는 정의다. 사전 정의는 그대로 보고하고, "거리 2 이내 Rouge-L ≥ 0.8" 을 사후 보조 지표로 함께 보고한다(사후 추가임을 명시).
 - 관찰된 부수 문제: 기준선 Python-124 가 `cd /testbed` (SWE-bench 관례 경로)를 시도했고, `/tmp/test_valid_date.py` 처럼 작업 디렉터리 밖에 파일을 썼다. 파일럿 샌드박스가 격리되지 않았기 때문이다. 채점에는 영향이 없지만 본 실험은 Docker 격리가 필요하다.
 
+### 3차: 3순위 묶음(SWE-bench Lite 소규모 변경) 파일럿
+
+**사전 등록 (2026-10-26, 실행 전)**
+
+- 생성: `src/prepare_swebench.py --n 10 --seed 20261029 --verified-ids …` → `data/tasks_swebench_pilot.json`. 원본 `SWE-bench/SWE-bench_Lite` test split(300개, HF commit `b0dde109…`). 정답 패치의 변경 줄이 10 이하이고 파일 1개만 바꾸며 **SWE-bench Verified(commit `78f471bf…`)에도 들어 있는** 과제 75개 중 무작위 10개(django 4, matplotlib 1, scikit-learn 2, sphinx 1, sympy 2).
+- 풀 변경 기록(에이전트 실행 전): 처음에는 Verified 조건 없이 220개 풀에서 뽑았다. 채점기 검증에서 `psf__requests-863` 에 들여쓰기 오류를 일으키는 오답 패치를 넣었는데 resolved 로 나왔다. 숨겨진 실패 테스트 4개가 외부 HTTP 서버에 의존해 수정 여부와 무관하게 통과했기 때문이다. 이 과제는 Verified 에 없다. 테스트가 사람 검수를 거친 과제만 쓰도록 Verified 교집합으로 좁히고 같은 seed 로 다시 뽑았다. 이 시점까지 에이전트는 한 번도 돌리지 않았다.
+- 에이전트: mini 의 `DockerEnvironment` 로 과제 이미지(`swebench/sweb.eval.x86_64.*`)를 띄운다. Apple Silicon 이라 `--platform linux/amd64` 에뮬레이션. 프롬프트·관찰·형식 오류 템플릿은 mini 의 SWE-bench 텍스트 모드 설정 `config/benchmarks/swebench_backticks.yaml` 그대로. 모델·디코딩·압축 설정·한도(턴 30, 20분, 32K, 형식 오류 3회)는 1·2순위와 같다.
+- 채점: SWE-bench 공식 하네스(`swebench` 5.0.2, `run_evaluation`)가 새 컨테이너에서 에이전트의 패치만 적용하고 숨겨진 FAIL_TO_PASS·PASS_TO_PASS 테스트를 돌린다. resolved 면 success, 패치 적용 실패·테스트 실패·빈 패치는 failure, 하네스가 보고서를 못 만들면 error. 제출하지 않고 한도로 끝난 시도는 1·2순위와 같은 원칙으로 컨테이너의 추적 파일 변경(`git diff`)을 떠서 채점한다(`evidence.patch_source`).
+- 채점기 검증(`src/validate_swebench.py`): 과제마다 정답 패치 → resolved, 정답이 바꾸는 파일 끝에 주석 한 줄만 붙인 무의미 패치 → unresolved 여야 쓴다. 통과하지 못한 과제는 빼고 그 사실을 적는다. 결과는 `results/pilot/swebench-validation.json`. 빈 패치는 하네스가 empty patch 로 따로 분류함을 확인했다(실행기는 failure 로 센다). 하네스는 arm64 에서 이미지를 플랫폼 없이 받으려다 실패하므로, 실행기와 검증 스크립트가 amd64 로 미리 받는다.
+- 선정 기준은 같다: (1) 기준선 해결률 20~50%, (2) 도구 출력 중앙값 8 이상. 먼저 10과제 × 2조건 × 1회.
+- 예상(실행 전 기록): 9B 로컬 모델이라 바닥(10% 미만) 위험이 크다. 턴 상한 30 은 mini 의 SWE-bench 기본값(250)보다 훨씬 작아 한도 종료가 많을 수 있다.
+- 한계: 에이전트 컨테이너의 네트워크는 차단하지 않는다(mini 기본값). 채점은 별도 컨테이너라 영향이 없다.
+
 ## 설계 변경과 최종 태스크
 
 | 파일럿 관찰 | 변경 내용과 이유 | 최종 설정 |

@@ -80,6 +80,26 @@ ollama list | grep qwen3.5                # 다이제스트 확인
 
 모델 호출은 `--mode real` 에서 mini 의 `LitellmTextbasedModel.query()` 가 불릴 때만 일어난다. 비용은 로컬 추론이라 0 이며 `cost_usd` 는 null 과 이유로 기록된다. 토큰은 litellm 이 돌려 주는 usage(Ollama 의 `prompt_eval_count` / `eval_count`)를 합산한다.
 
+## 3순위 묶음: SWE-bench Lite (Docker 필요)
+
+```sh
+# 과제 선정 (원본 jsonl 과 Verified id 목록은 datasets 로 받아 둔다. 자세한 규칙은 스크립트 docstring)
+python3 experiments/E01-tool-output-compression/src/prepare_swebench.py --source <lite_test.jsonl> \
+  --verified-ids <verified_ids.json> --n 10 --seed 20261029 \
+  --out experiments/E01-tool-output-compression/data/tasks_swebench_pilot.json
+
+# 채점 가능성 검증: 과제마다 정답 패치 → resolved, 주석만 붙인 패치 → unresolved 여야 쓴다
+.venv/bin/python experiments/E01-tool-output-compression/src/validate_swebench.py \
+  --tasks experiments/E01-tool-output-compression/data/tasks_swebench_pilot.json \
+  --out experiments/E01-tool-output-compression/results/pilot/swebench-validation.json
+
+# 실행 (과제 이미지는 linux/amd64 로 받는다. Apple Silicon 에서는 Rosetta 에뮬레이션)
+.venv/bin/python experiments/E01-tool-output-compression/src/run.py --run-id swe-r1-001 --mode real \
+  --tasks experiments/E01-tool-output-compression/data/tasks_swebench_pilot.json --repeats 1
+```
+
+에이전트는 mini 의 `DockerEnvironment` 와 SWE-bench 텍스트 모드 템플릿(`config/benchmarks/swebench_backticks.yaml`)으로 돈다. 채점은 SWE-bench 공식 하네스가 새 컨테이너에서 제출 패치만 적용해 숨겨진 테스트로 한다. 과제 이미지 10개는 합계 수십 GB 다.
+
 ## 산출물
 
 ```
