@@ -17,6 +17,21 @@
 </div>
 
 
+## 파일럿 PR 제출 시작하기
+
+[제출 안내](docs/SUBMISSION_GUIDE.md)를 따라 `templates/experiment/`를 복사하고,
+카드·코드·설정·파일럿 로그를 함께 제출하세요.
+
+- [복사용 실험 카드](templates/experiment/CARD.md)
+- [작성 완료된 오프라인 예시](experiments/E00-offline-example/CARD.md) — 실제 모델 결과가 아닌 mock 연습
+- [공통 실험·로그 규칙](docs/EXPERIMENT_PROTOCOL.md)
+
+API 키 없이 예시 로그를 확인하려면 레포 루트에서 실행하세요 (Python 3.10+).
+
+```sh
+python3 harness/summarize.py experiments/E00-offline-example/results/pilot/example-001
+```
+
 ## 러너 모집 안내
 
 | 항목 | 내용 |
@@ -101,7 +116,7 @@ AgentProof에서는 이런 질문을 직접 실험합니다.
 | 구분 | 기준 |
 | --- | --- |
 | 개인 | RQ 1개, Experiment Card ≥1, baseline/intervention **≥5회** 반복, cross-reproduction 1회 |
-| 공통 | 공통 task ≥3, harness + Board, raw log 필수 필드(success/reliability/token/cost) |
+| 공통 | 공통 task ≥3, harness + Board, 시도별 성공·토큰·비용 로그와 정의된 reliability 요약 |
 | 운영 | 매주 GitHub에 코드·설정·결과·의사결정 중 ≥1 기록 |
 | v1.0 | 신규 기여자가 README만으로 baseline 1회 재현 가능 |
 
@@ -179,10 +194,13 @@ Agent 개발이나 연구 경험은 필수가 아닙니다. Python과 GitHub를 
 ## 📁 Repo layout
 
 ```
-docs/           # 성공 기준, 역할, 포지셔닝
-templates/      # Experiment Card 예시
-experiments/    # Runner별 실험 (시즌 중 추가)
-harness/        # 공용 evaluation harness (시즌 중 추가)
+docs/           # 제출 안내, 실험 규칙, 성공 기준
+templates/experiment/  # 복사용 카드·설정·오프라인 실행 예시
+experiments/    # 연구 질문별 실험 패키지 (E00은 mock 예시)
+reproductions/  # 다른 참여자의 교차 재현
+harness/        # 공통 결과 규격·로그 검증·요약
+report/         # 통합 기술보고서 작성 틀
+board/          # 검토한 연구 결과 비교표 안내
 ```
 
 ## Acknowledgement 🙏

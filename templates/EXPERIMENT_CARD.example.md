@@ -1,45 +1,9 @@
-# Experiment Card (Example)
+# Experiment Card 안내
 
-> 복사해서 `experiments/<your-id>/CARD.md`로 사용하세요.
+새 제출은 [실험 패키지](experiment/README.md)를 폴더째 복사하세요.
 
-## Meta
-- Runner:
-- Date:
-- Research Question:
-- Hypothesis:
+- [복사용 카드](experiment/CARD.md)
+- [작성 완료된 모의 파일럿 카드](../experiments/E00-offline-example/CARD.md)
+- [제출 절차](../docs/SUBMISSION_GUIDE.md)
 
-## Setup
-- Model:
-- Task suite: (공통 task ID 목록)
-- Baseline config:
-- Intervention config:
-- Seeds / repeats: N =
-- Cost budget (USD):
-
-## Metrics (필수)
-| Metric | Baseline | Intervention | Δ |
-| --- | --- | --- | --- |
-| Success rate | | | |
-| Reliability (동일 조건 N회) | | | |
-| Tokens / run | | | |
-| Cost / run (USD) | | | |
-| Latency (optional) | | | |
-
-## Result summary
--
-
-## Ablation (해당 시)
--
-
-## Failure / negative results
--
-
-## Artifacts
-- Raw logs:
-- Config:
-- Code commit:
-
-## Cross-reproduction
-- Reproduced by:
-- Same direction? Y/N
-- Notes:
+코드·설정·로그를 카드와 함께 제출해야 합니다.
