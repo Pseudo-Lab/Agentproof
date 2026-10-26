@@ -113,3 +113,28 @@ def rouge_l_f1(a: str, b: str) -> float:
         return 0.0
     p, r = lcs / len(x), lcs / len(y)
     return 2 * p * r / (p + r)
+
+
+# ---------------------------------------------------------------- 공개용 로그 정리
+
+def local_identifiers(repo_root: Path) -> list[tuple[str, str]]:
+    """공개 로그에서 가릴 로컬 식별자와 대체 문자열. 긴 것부터 바꾼다.
+
+    가리는 것: 레포 절대 경로, 임시 디렉터리 경로, 홈 경로, 로컬 사용자명(ls -l 의 소유자 칸 등).
+    """
+    import getpass
+    import os
+    pairs = [(str(Path(repo_root).resolve()), "<repo>")]
+    for tmp in {tempfile.gettempdir(), os.path.realpath(tempfile.gettempdir())}:
+        pairs.append((tmp.rstrip("/"), "<tmp>"))
+    pairs.append((str(Path.home()), "~"))
+    user = getpass.getuser()
+    if len(user) >= 3:
+        pairs.append((user, "user"))
+    return sorted(set(pairs), key=lambda p: -len(p[0]))
+
+
+def sanitize_text(text: str, pairs: list[tuple[str, str]]) -> str:
+    for old, new in pairs:
+        text = text.replace(old, new)
+    return text

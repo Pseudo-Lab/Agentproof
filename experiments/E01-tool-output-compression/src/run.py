@@ -178,6 +178,8 @@ def run_trial(task: dict, condition: str, cfg: dict, repeat: int, mode: str, out
                                    "repeat_id": repeat, "seed": seed, "mode": mode, "grade": graded,
                                    "final_repo": final_snapshot, "infra_error": infra_error,
                                    "compression_per_call": compression_per_call}})
+    # 공개용 정리: 레포·임시·홈 경로와 로컬 사용자명을 가린다(토큰 수·상태는 그대로)
+    traj_path.write_text(ac.sanitize_text(traj_path.read_text(), ac.local_identifiers(ROOT)))
 
     missing = {"cost_usd": "local inference on own hardware; no per-token price"}
     if not tokens_measured:

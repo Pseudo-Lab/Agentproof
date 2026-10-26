@@ -111,6 +111,20 @@ class GraderTests(unittest.TestCase):
             self.assertEqual(sorted(p.name for p in Path(d).iterdir()), ["ISSUE.md", "solution.py"])
 
 
+class SanitizeTests(unittest.TestCase):
+    def test_replaces_longest_first_and_keeps_json_valid(self):
+        pairs = [("/home/alice/repo", "<repo>"), ("/home/alice", "~"), ("alice", "user")]
+        pairs.sort(key=lambda p: -len(p[0]))
+        doc = json.dumps({"path": "/home/alice/repo/x.json", "ls": "drwx 4 alice staff", "home": "/home/alice/a"})
+        out = ac.sanitize_text(doc, pairs)
+        self.assertEqual(json.loads(out), {"path": "<repo>/x.json", "ls": "drwx 4 user staff", "home": "~/a"})
+
+    def test_local_identifiers_cover_home_and_tmp(self):
+        olds = [o for o, _ in ac.local_identifiers(Path("."))]
+        self.assertIn(str(Path.home()), olds)
+        self.assertTrue(any(o.startswith(tempfile.gettempdir().rstrip("/")) for o in olds))
+
+
 class RougeTests(unittest.TestCase):
     def test_identical_and_disjoint(self):
         self.assertAlmostEqual(ac.rouge_l_f1("a b c", "a b c"), 1.0)
