@@ -74,7 +74,7 @@ sha256이 일치하는 바이트 그대로 복원했다(`results/provenance/sour
 mini 2.4.6, 공식 SWE-bench 4.1.0과 기존 도구를 사용했다. [원본 commit](configs/upstreams.lock.json),
 [mini 소스](src/minisweagent/), [도구 schema](configs/intervention-tools.json)를 포함한다.
 
-- 데이터: SWE-bench Lite test revision `6ec7bb89b9342f664a54a6e0a6ea6501d3437cc2`의 [기존 점검용 5문제](data/tasks.json).
+- 데이터: SWE-bench Lite test revision `6ec7bb89b9342f664a54a6e0a6ea6501d3437cc2`의 [기존 점검용 5문제](data/tasks.json). 이 파일럿은 기존 노출된 Lite 문제를 재사용했으므로, SWE-bench Verified 기준으로 보고되는 mini-swe-agent 공식 수치와 직접 비교하지 않는다(후속 설계에서 Verified로 전환).
 - 표본: 모델별 5문제 × 2조건 × 1회 = 총 20건. 앞선 실험에서 사용한 문제다.
 - 예산: 문제당 600초, 요청·step 상한 없음. 준비·인덱싱·공식 채점은 별도. 종료 후 패치 회수 최대 30초.
 - 모델: Gemma-4-31B-it / Qwen3.5-27B, seed 42, thinking 활성화, 모델별 1 worker. revision과 sampling은 manifest에 저장했다.
@@ -114,6 +114,10 @@ mini 2.4.6, 공식 SWE-bench 4.1.0과 기존 도구를 사용했다. [원본 com
 각 조건은 도구 schema와 필수 사용 설명만 바꾸고 나머지는 동일하게 둔다.
 제한형 기준 도구(B의 S·U·E) 선정과 구현이 다음 작업이다.
 재현 스크립트 안내와 실행 도구의 정합성, 검색의 테스트 파일 제외 범위, 부분 수정 후 검증 누락을 우선 점검한다.
-개발 10→20문제 후 노출 이력을 확인한 별도 50문제, 조건당 최소 5회 반복을 계획한다.
+
+데이터셋은 이번 파일럿의 SWE-bench Lite에서 **SWE-bench Verified로 전환한다.**
+mini-swe-agent 공식 결과가 SWE-bench Verified 기준으로 보고되므로, 같은 벤치마크를 써야
+공식 수치와 직접 비교할 수 있다. 경량 평가에는 Verified의 50문제 subset(SWE-bench Verified Mini)을
+활용할 수 있다. 개발 10→20문제 후 노출 이력을 확인한 별도 50문제, 조건당 최소 5회 반복을 계획한다.
 태스크·seed·순서를 실행 전에 고정하고 task 단위 paired bootstrap으로 불확실성을 제시한다.
 2모델×50문제×4조건×5회×600초의 상한은 약 333시간이며 준비·채점은 별도다.
