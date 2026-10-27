@@ -286,8 +286,12 @@ def main():
                           "base_url_env": "OLLAMA_HOST", "think": m["think"],
                           "preserve_thinking": "n/a: previous assistant thinking is never forwarded (text mode, content only)"},
         "agent_framework": {"name": "mini-swe-agent", "version": MINI_VERSION,
-                            "agent": "DefaultAgent", "environment": "LocalEnvironment",
-                            "templates": "minisweagent/config/mini_textbased.yaml (system, instance, observation, format_error)",
+                            "agent": "DefaultAgent",
+                            "environment": "DockerEnvironment (linux/amd64)" if any(t.get("kind") == "swebench" for t in tasks)
+                            else "LocalEnvironment",
+                            "templates": ("minisweagent/config/benchmarks/swebench_backticks.yaml"
+                                          if any(t.get("kind") == "swebench" for t in tasks)
+                                          else "minisweagent/config/mini_textbased.yaml") + " (system, instance, observation, format_error)",
                             "hook": "src/mini_compress.py: Model.query() 직전 compress_old_observations"},
         "configs": cfgs, "task_ids": task_ids,
         "data_source": tasks_doc.get("source"), "data_selection": tasks_doc.get("selection"),
@@ -302,7 +306,13 @@ def main():
                         "dependencies": f"mini-swe-agent=={MINI_VERSION} (litellm, pyyaml); grader uses standard library"},
         "warning": "mock mode uses human-written fixtures and is not evidence of intervention efficacy" if args.mode == "mock" else None,
     }
-    (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+    prev_path = out / "manifest.json"
+    if args.resume and prev_path.exists():
+        # 이어 돌릴 때 이전 실행의 시작 시각·commit·반복 수를 잃지 않도록 쌓아 둔다
+        prev = json.loads(prev_path.read_text())
+        manifest["previous_runs"] = prev.pop("previous_runs", []) + [
+            {k: prev.get(k) for k in ("started_at_utc", "code_commit", "code_dirty", "repeats_per_condition", "data_sha256")}]
+    prev_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
 
     trials_path = out / "trials.jsonl"
     done = set()
