@@ -1,0 +1,159 @@
+{
+  "condition": "intervention",
+  "historical_run": "mini-audited-staged-pilot5-20261026-174432",
+  "historical_condition": "staged-sue",
+  "comparison": "Historical bundled interface comparison, not an isolated S/U/E ablation.",
+  "models": {
+    "gemma31b": {
+      "agent": {
+        "system_template": "You solve repository issues through named Search / Understanding / Editing tools.\nThere is no shell tool, arbitrary command execution, or inline Python execution.\nSupply tool arguments as JSON data, with exactly one tool call per response.\nDo not wrap arguments in shell quotes. Tool names and argument schemas are provided.\n\nStart in S by searching with AutoCodeRover's search APIs. Search covers indexed Python\nsource and excludes tests/unparseable files. Read the returned code and locations.\nYou may search repeatedly. When you have a candidate file, call readCode to enter U.\nIn U, first readCode(path) for the file; if it returns signatures, request the relevant\nselector or line range. Ask for more code whenever necessary. You may return to S by\ncalling a search tool. Once U has been entered, E remains available when returning to S.\nLocations need not have appeared in search results: paths from the issue or\npreviously read code are also permitted.\n\nAfter U, use an editing tool to enter E. Follow CodeStruct's original guidance:\nstr_replace for small changes, editCode for adding/deleting or rewriting functions and\nclasses, create_file for new source files. These tools can print errors even with exit\ncode zero: inspect the actual result. You may return to U or S when context is missing.\nThe first next-stage tool performs the action and changes stage; there is no separate\nstage-switch command. Available tools reflect the current stage.\n\nrun_tests, view_diff and submit are available in every stage and do not change stage.\nUse run_tests for pytest paths/options, or Django labels/options (for example model_fields).\nYou may create or modify tests with the editing tools and run them with the test runner.\nA target string is one runner argument; an array supplies multiple arguments.\nUse view_diff to inspect the patch and submit to finish. Their optional paths argument\nselects the intended source files using git pathspecs; omit it for all changes.\nKeep temporary verification files out of the submitted patch, as in mini's original\nsubmission instructions. The framework collects the patch; no patch.txt is needed.\nTool descriptions inherited from upstream may mention shell tools;\nonly the named tools actually supplied in this session are available.\n",
+        "instance_template": "<pr_description>\nConsider the following PR description:\n{{task}}\n</pr_description>\n\nYou're a software engineer interacting continuously with a computer by submitting tool calls.\nYou'll be helping implement necessary changes to meet requirements in the PR description.\nYour task is specifically to make changes to non-test files in /testbed in order to fix\nthe issue described in the PR description in a way that is general and consistent with the codebase.\n\nFor each response:\n1. Include a THOUGHT section explaining your reasoning and what you're trying to accomplish.\n2. Provide exactly one available named tool call to execute.\n\nAnalyze the codebase by finding and reading relevant files. Create a test to reproduce\nthe issue, edit the source code, verify the fix, and test edge cases.\nUse view_diff to inspect only your intended source changes, then submit with the same paths.\nDo not submit temporary tests, helper scripts, or unrelated installation/configuration changes.\nYou cannot continue working on this task after submitting.\n",
+        "step_limit": 0,
+        "cost_limit": 0.0,
+        "wall_time_limit_seconds": 600,
+        "max_consecutive_format_errors": 0,
+        "output_path": null
+      },
+      "agent_type": "__main__.StagedAgent",
+      "model": {
+        "model_name": "openai/google/gemma-4-31B-it",
+        "model_kwargs": {
+          "drop_params": true,
+          "parallel_tool_calls": false,
+          "api_base": "http://127.0.0.1:18002/v1",
+          "seed": 42,
+          "extra_body": {
+            "top_k": 64,
+            "chat_template_kwargs": {
+              "enable_thinking": true
+            }
+          },
+          "temperature": 1,
+          "top_p": 0.95
+        },
+        "litellm_model_registry": null,
+        "set_cache_control": null,
+        "cost_tracking": "ignore_errors",
+        "format_error_template": "{% if finish_reason is defined and (finish_reason == \"length\" or (finish_reason == \"tool_calls\" and not has_tool_calls)) -%}\nYour previous response reached the output token limit (finish_reason={{ finish_reason }}) before you produced a tool call, so it was cut off. Respond more concisely and finish with exactly one available named tool call. If you need to think more, do so briefly.\n{%- else -%}\nTool call error:\n\n<error>\n{{error}}\n</error>\n\nEvery response needs exactly one available named tool call. Supply its arguments as a JSON object.\nIf you have completed your assignment, use submit with the intended source paths.\n{%- endif %}\n",
+        "observation_template": "{% if output.exception_info -%}\n<exception>{{output.exception_info}}</exception>\n{% endif -%}\n<stage>{{ output.extra.stage }}</stage>\n<returncode>{{ output.returncode }}</returncode>\n{% if output.output | length < 10000 %}\n<output>{{ output.output }}</output>\n{% else %}\n<warning>Output exceeds 10000 characters. Narrow the search or request a specific file, selector, or line range using the provided tools.</warning>\n<output_head>{{ output.output[:5000] }}</output_head>\n<elided_chars>{{ output.output | length - 10000 }}</elided_chars>\n<output_tail>{{ output.output[-5000:] }}</output_tail>\n{% endif %}\n",
+        "multimodal_regex": ""
+      },
+      "model_type": "minisweagent.run.benchmarks.aci_staged.StagedModel",
+      "environment": {
+        "image": "docker.io/swebench/sweb.eval.x86_64.astropy_1776_astropy-14182:latest",
+        "cwd": "/testbed",
+        "env": {
+          "PAGER": "cat",
+          "MANPAGER": "cat",
+          "LESS": "-R",
+          "PIP_PROGRESS_BAR": "off",
+          "TQDM_DISABLE": "1",
+          "BASH_ENV": "/root/.bashrc",
+          "ACI_TOOL_S": "1",
+          "ACI_TOOL_U": "1",
+          "ACI_U_IMPLEMENTATION": "codestruct",
+          "ACI_TOOL_POLICY": "optional",
+          "ACI_TOOL_E": "1"
+        },
+        "forward_env": [],
+        "timeout": 60,
+        "executable": "docker",
+        "run_args": [
+          "--rm",
+          "--mount",
+          "type=bind,src=./.cache/aci-bin/uv,target=/usr/local/bin/uv,readonly",
+          "--mount",
+          "type=bind,src=./tools/search,target=/opt/aci-tools/search,readonly",
+          "--mount",
+          "type=bind,src=./tools/understanding/codestruct,target=/opt/aci-tools/understanding,readonly",
+          "--mount",
+          "type=bind,src=./tools/editing,target=/opt/aci-tools/editing,readonly"
+        ],
+        "container_timeout": "2h",
+        "pull_timeout": 120,
+        "interpreter": [
+          "bash",
+          "-c"
+        ]
+      },
+      "environment_type": "minisweagent.environments.docker.DockerEnvironment"
+    },
+    "qwen27b": {
+      "agent": {
+        "system_template": "You solve repository issues through named Search / Understanding / Editing tools.\nThere is no shell tool, arbitrary command execution, or inline Python execution.\nSupply tool arguments as JSON data, with exactly one tool call per response.\nDo not wrap arguments in shell quotes. Tool names and argument schemas are provided.\n\nStart in S by searching with AutoCodeRover's search APIs. Search covers indexed Python\nsource and excludes tests/unparseable files. Read the returned code and locations.\nYou may search repeatedly. When you have a candidate file, call readCode to enter U.\nIn U, first readCode(path) for the file; if it returns signatures, request the relevant\nselector or line range. Ask for more code whenever necessary. You may return to S by\ncalling a search tool. Once U has been entered, E remains available when returning to S.\nLocations need not have appeared in search results: paths from the issue or\npreviously read code are also permitted.\n\nAfter U, use an editing tool to enter E. Follow CodeStruct's original guidance:\nstr_replace for small changes, editCode for adding/deleting or rewriting functions and\nclasses, create_file for new source files. These tools can print errors even with exit\ncode zero: inspect the actual result. You may return to U or S when context is missing.\nThe first next-stage tool performs the action and changes stage; there is no separate\nstage-switch command. Available tools reflect the current stage.\n\nrun_tests, view_diff and submit are available in every stage and do not change stage.\nUse run_tests for pytest paths/options, or Django labels/options (for example model_fields).\nYou may create or modify tests with the editing tools and run them with the test runner.\nA target string is one runner argument; an array supplies multiple arguments.\nUse view_diff to inspect the patch and submit to finish. Their optional paths argument\nselects the intended source files using git pathspecs; omit it for all changes.\nKeep temporary verification files out of the submitted patch, as in mini's original\nsubmission instructions. The framework collects the patch; no patch.txt is needed.\nTool descriptions inherited from upstream may mention shell tools;\nonly the named tools actually supplied in this session are available.\n",
+        "instance_template": "<pr_description>\nConsider the following PR description:\n{{task}}\n</pr_description>\n\nYou're a software engineer interacting continuously with a computer by submitting tool calls.\nYou'll be helping implement necessary changes to meet requirements in the PR description.\nYour task is specifically to make changes to non-test files in /testbed in order to fix\nthe issue described in the PR description in a way that is general and consistent with the codebase.\n\nFor each response:\n1. Include a THOUGHT section explaining your reasoning and what you're trying to accomplish.\n2. Provide exactly one available named tool call to execute.\n\nAnalyze the codebase by finding and reading relevant files. Create a test to reproduce\nthe issue, edit the source code, verify the fix, and test edge cases.\nUse view_diff to inspect only your intended source changes, then submit with the same paths.\nDo not submit temporary tests, helper scripts, or unrelated installation/configuration changes.\nYou cannot continue working on this task after submitting.\n",
+        "step_limit": 0,
+        "cost_limit": 0.0,
+        "wall_time_limit_seconds": 600,
+        "max_consecutive_format_errors": 0,
+        "output_path": null
+      },
+      "agent_type": "__main__.StagedAgent",
+      "model": {
+        "model_name": "openai/Qwen/Qwen3.5-27B",
+        "model_kwargs": {
+          "drop_params": true,
+          "parallel_tool_calls": false,
+          "api_base": "http://127.0.0.1:18003/v1",
+          "seed": 42,
+          "extra_body": {
+            "top_k": 20,
+            "min_p": 0,
+            "repetition_penalty": 1,
+            "chat_template_kwargs": {
+              "enable_thinking": true
+            }
+          },
+          "presence_penalty": 0,
+          "temperature": 0.6,
+          "top_p": 0.95
+        },
+        "litellm_model_registry": null,
+        "set_cache_control": null,
+        "cost_tracking": "ignore_errors",
+        "format_error_template": "{% if finish_reason is defined and (finish_reason == \"length\" or (finish_reason == \"tool_calls\" and not has_tool_calls)) -%}\nYour previous response reached the output token limit (finish_reason={{ finish_reason }}) before you produced a tool call, so it was cut off. Respond more concisely and finish with exactly one available named tool call. If you need to think more, do so briefly.\n{%- else -%}\nTool call error:\n\n<error>\n{{error}}\n</error>\n\nEvery response needs exactly one available named tool call. Supply its arguments as a JSON object.\nIf you have completed your assignment, use submit with the intended source paths.\n{%- endif %}\n",
+        "observation_template": "{% if output.exception_info -%}\n<exception>{{output.exception_info}}</exception>\n{% endif -%}\n<stage>{{ output.extra.stage }}</stage>\n<returncode>{{ output.returncode }}</returncode>\n{% if output.output | length < 10000 %}\n<output>{{ output.output }}</output>\n{% else %}\n<warning>Output exceeds 10000 characters. Narrow the search or request a specific file, selector, or line range using the provided tools.</warning>\n<output_head>{{ output.output[:5000] }}</output_head>\n<elided_chars>{{ output.output | length - 10000 }}</elided_chars>\n<output_tail>{{ output.output[-5000:] }}</output_tail>\n{% endif %}\n",
+        "multimodal_regex": ""
+      },
+      "model_type": "minisweagent.run.benchmarks.aci_staged.StagedModel",
+      "environment": {
+        "image": "docker.io/swebench/sweb.eval.x86_64.astropy_1776_astropy-14182:latest",
+        "cwd": "/testbed",
+        "env": {
+          "PAGER": "cat",
+          "MANPAGER": "cat",
+          "LESS": "-R",
+          "PIP_PROGRESS_BAR": "off",
+          "TQDM_DISABLE": "1",
+          "BASH_ENV": "/root/.bashrc",
+          "ACI_TOOL_S": "1",
+          "ACI_TOOL_U": "1",
+          "ACI_U_IMPLEMENTATION": "codestruct",
+          "ACI_TOOL_POLICY": "optional",
+          "ACI_TOOL_E": "1"
+        },
+        "forward_env": [],
+        "timeout": 60,
+        "executable": "docker",
+        "run_args": [
+          "--rm",
+          "--mount",
+          "type=bind,src=./.cache/aci-bin/uv,target=/usr/local/bin/uv,readonly",
+          "--mount",
+          "type=bind,src=./tools/search,target=/opt/aci-tools/search,readonly",
+          "--mount",
+          "type=bind,src=./tools/understanding/codestruct,target=/opt/aci-tools/understanding,readonly",
+          "--mount",
+          "type=bind,src=./tools/editing,target=/opt/aci-tools/editing,readonly"
+        ],
+        "container_timeout": "2h",
+        "pull_timeout": 120,
+        "interpreter": [
+          "bash",
+          "-c"
+        ]
+      },
+      "environment_type": "minisweagent.environments.docker.DockerEnvironment"
+    }
+  }
+}

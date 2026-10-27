@@ -1,0 +1,27 @@
+{
+  "astropy__astropy-14182": {
+    "model_name_or_path": "openai/google/gemma-4-31B-it",
+    "instance_id": "astropy__astropy-14182",
+    "model_patch": "diff --git a/astropy/io/ascii/rst.py b/astropy/io/ascii/rst.py\nindex abdeba8ef..92693c099 100644\n--- a/astropy/io/ascii/rst.py\n+++ b/astropy/io/ascii/rst.py\n@@ -57,10 +57,13 @@ class RST(FixedWidth):\n     data_class = SimpleRSTData\n     header_class = SimpleRSTHeader\n \n-    def __init__(self):\n-        super().__init__(delimiter_pad=None, bookend=False)\n-\n-    def write(self, lines):\n-        lines = super().write(lines)\n-        lines = [lines[1]] + lines + [lines[1]]\n-        return lines\n+    def __init__(self, **kwargs):\n+        kwargs.setdefault('delimiter_pad', None)\n+        kwargs.setdefault('bookend', False)\n+        super().__init__(**kwargs)\n+\n+    def write(self, table):\n+        lines = super().write(table)\n+        num_header_rows = len(self.data.header_rows)\n+        separator = lines[num_header_rows]\n+        return [separator] + lines + [separator]\n"
+  },
+  "django__django-11815": {
+    "model_name_or_path": "openai/google/gemma-4-31B-it",
+    "instance_id": "django__django-11815",
+    "model_patch": "diff --git a/django/db/migrations/serializer.py b/django/db/migrations/serializer.py\nindex 27b5cbd379..3a5d47e93c 100644\n--- a/django/db/migrations/serializer.py\n+++ b/django/db/migrations/serializer.py\n@@ -120,9 +120,7 @@ class EnumSerializer(BaseSerializer):\n     def serialize(self):\n         enum_class = self.value.__class__\n         module = enum_class.__module__\n-        v_string, v_imports = serializer_factory(self.value.value).serialize()\n-        imports = {'import %s' % module, *v_imports}\n-        return \"%s.%s(%s)\" % (module, enum_class.__name__, v_string), imports\n+        return \"%s.%s[%s]\" % (module, enum_class.__name__, repr(self.value.name)), {\"import %s\" % module}\n \n \n class FloatSerializer(BaseSimpleSerializer):\n"
+  },
+  "matplotlib__matplotlib-18869": {
+    "model_name_or_path": "openai/google/gemma-4-31B-it",
+    "instance_id": "matplotlib__matplotlib-18869",
+    "model_patch": "diff --git a/lib/matplotlib/__init__.py b/lib/matplotlib/__init__.py\nindex b657a35cf..7a5c01576 100644\n--- a/lib/matplotlib/__init__.py\n+++ b/lib/matplotlib/__init__.py\n@@ -148,6 +148,13 @@ def __getattr__(name):\n         else:  # Get the version from the _version.py setuptools_scm file.\n             __version__ = _version.version\n         return __version__\n+    if name == \"version_info\":\n+        if \"__version__\" not in globals():\n+            __getattr__(\"__version__\")\n+        if __version__ == _version.version:\n+            return _version.version_tuple\n+        from packaging.version import Version\n+        return Version(__version__).release\n     raise AttributeError(f\"module {__name__!r} has no attribute {name!r}\")\n \n \n"
+  },
+  "mwaskom__seaborn-3010": {
+    "model_name_or_path": "openai/google/gemma-4-31B-it",
+    "instance_id": "mwaskom__seaborn-3010",
+    "model_patch": "diff --git a/seaborn/_stats/regression.py b/seaborn/_stats/regression.py\nindex 7b7ddc8..414b9e7 100644\n--- a/seaborn/_stats/regression.py\n+++ b/seaborn/_stats/regression.py\n@@ -21,6 +21,8 @@ class PolyFit(Stat):\n \n     def _fit_predict(self, data):\n \n+        data = data.dropna(subset=[\"x\", \"y\"])\n+\n         x = data[\"x\"]\n         y = data[\"y\"]\n         if x.nunique() <= self.order:\n"
+  },
+  "pydata__xarray-4094": {
+    "model_name_or_path": "openai/google/gemma-4-31B-it",
+    "instance_id": "pydata__xarray-4094",
+    "model_patch": "diff --git a/xarray/core/dataarray.py b/xarray/core/dataarray.py\nindex b0df8749..725d725a 100644\n--- a/xarray/core/dataarray.py\n+++ b/xarray/core/dataarray.py\n@@ -1961,7 +1961,7 @@ class DataArray(AbstractArray, DataWithCoords):\n         # pull variables out of datarray\n         data_dict = {}\n         for k in variables:\n-            data_dict[k] = self.sel({variable_dim: k}).squeeze(drop=True)\n+            data_dict[k] = self.sel({variable_dim: k}).squeeze(drop=True).drop_vars(dim, errors='ignore')\n \n         # unstacked dataset\n         return Dataset(data_dict)\n"
+  }
+}
