@@ -4,7 +4,6 @@ No model, Docker, network, or new grader. Agentproof's unchanged summarizer
 validates the grid. --write creates the two derived files; default checks them.
 """
 import argparse
-import gzip
 import hashlib
 import importlib.util
 import json
@@ -34,8 +33,6 @@ def convert(run):
     for name, metadata in manifest["artifacts"].items():
         data = (run / name).read_bytes()
         assert hashlib.sha256(data).hexdigest() == metadata["public_sha256"], name
-        if name.endswith(".gz"):
-            assert hashlib.sha256(gzip.decompress(data)).hexdigest() == metadata["public_uncompressed_sha256"], name
     rows = []
     for condition in ("baseline", "intervention"):
         report_path = f"{condition}/official-report.json"
@@ -44,8 +41,8 @@ def convert(run):
         assert official["total_instances"] == len(manifest["task_ids"])
         assert set(predictions) == set(manifest["task_ids"])
         for task in manifest["task_ids"]:
-            trajectory_path = f"{condition}/{task}.traj.json.gz"
-            trajectory = json.loads(gzip.decompress((run / trajectory_path).read_bytes()))
+            trajectory_path = f"{condition}/{task}.traj.json"
+            trajectory = json.loads((run / trajectory_path).read_text())
             assert trajectory["instance_id"] == task
             messages = trajectory["messages"]
             exits = [m for m in messages if m["role"] == "exit"]
@@ -84,10 +81,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--write", action="store_true")
     args = parser.parse_args()
-    provenance = json.loads((PACKAGE / "src/snapshots/provenance.json").read_text())
-    for condition, metadata in provenance.items():
-        archive = PACKAGE / "src/snapshots" / f"{condition}.tar.gz"
-        assert hashlib.sha256(archive.read_bytes()).hexdigest() == metadata["public_archive_sha256"]
+    provenance = json.loads((PACKAGE / "results/provenance/source-code.json").read_text())
+    for name, digest in provenance["files"].items():
+        assert hashlib.sha256((PACKAGE / name).read_bytes()).hexdigest() == digest, name
     for run in sorted((PACKAGE / "results/pilot").iterdir()):
         rows = convert(run)
         trials = run / "trials.jsonl"

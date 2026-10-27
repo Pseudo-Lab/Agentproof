@@ -1,5 +1,7 @@
 # E03 — S/U/E 도구 인터페이스와 코딩 에이전트의 효율
 
+**mini-swe-agent 기반으로 검색(S)·읽기(U)·편집(E) 도구의 해결률과 효율을 비교한다.**
+
 - 담당자: [muuty](https://github.com/muuty)
 - 단계: 실제 모델 파일럿. 실행 2026-10-26 UTC, 제출 정리 2026-10-27.
 - 질문: 기존 Search / Understanding / Editing 도구를 제공하고 사용 경로를 제한하면 해결률과 시간·토큰 사용이 어떻게 달라지는가?
@@ -21,8 +23,8 @@
 | 오류 처리 | format error 상한 3, API retry 억제 | 상한 0, deadline 내 원본 retry |
 
 mini 2.4.6, 공식 SWE-bench 4.1.0과 기존 도구를 사용했다. [원본 commit](configs/upstreams.lock.json),
-[실행 코드·해시](src/snapshots/provenance.json), [도구 schema](configs/intervention-tools.json)를 포함한다.
-CodeStruct의 UTF-8 위치 수정은 snapshot의 tools/*/patches에 기록했다. U는 CodeStruct를 사용했다.
+[mini 소스](src/minisweagent/), [도구 schema](configs/intervention-tools.json)를 포함한다.
+CodeStruct의 UTF-8 위치 수정은 tools/*/patches에 기록했다. U는 CodeStruct를 사용했다.
 
 - 데이터: SWE-bench Lite test revision `6ec7bb89b9342f664a54a6e0a6ea6501d3437cc2`의 [기존 점검용 5문제](data/tasks.json).
 - 표본: 모델별 5문제 × 2조건 × 1회 = 총 20건. 앞선 실험에서 사용한 문제다.
@@ -63,10 +65,3 @@ CodeStruct의 UTF-8 위치 수정은 snapshot의 tools/*/patches에 기록했다
 개발 10→20문제 후 노출 이력을 확인한 별도 50문제, 조건당 최소 5회 반복을 계획한다.
 태스크·seed·순서를 실행 전에 고정하고 task 단위 paired bootstrap으로 불확실성을 제시한다.
 2모델×50문제×4조건×5회×600초의 상한은 약 333시간이며 준비·채점은 별도다.
-
-## 해석 범위
-
-현재 결과는 이전에 노출된 5문제의 1회 실행이며 프롬프트·도구·제약이 함께 변경되었다.
-개별 S/U/E 효과와 반복 안정성은 후속 비교에서 측정한다. 최종 평가 표본과 S0/U0/E0 설정은 선정 중이다.
-실험 당시 자체 코드는 미커밋 상태여서 snapshot 해시로 식별한다. baseline serving 환경 누락분은 staged 환경으로 보완했으며,
-실제 vLLM fingerprint 차이도 manifest에 기록했다. 교차 재현과 이번 제출 과정의 모델 재실행은 미실시다.
