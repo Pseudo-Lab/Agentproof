@@ -17,7 +17,7 @@ Baseline은 mini의 bash 인터페이스를 거의 그대로 쓰고(seed·deadli
 | 항목 | Baseline (mini 기본값) | S+U+E (변형) |
 | --- | --- | --- |
 | 설정 | [baseline.json](configs/baseline.json) | [intervention.json](configs/intervention.json) |
-| 에이전트 | `BudgetAgent` (bash 도구 1개) | `StagedAgent` (named tool 집합) |
+| 에이전트 | bash 에이전트 (셸 도구 1개, 코드상 `BudgetAgent`) | ACI 에이전트 (named tool 집합, 코드상 `StagedAgent`) |
 | 도구 호출 방식 | 셸 명령을 bash 도구로 자유 실행 | 셸 없이 이름이 정해진 도구만 JSON 인자로 호출 |
 | S (검색) | 셸 명령(grep/find 등) | AutoCodeRover AST 검색 API 8종 |
 | U (읽기) | 셸 명령(cat/sed 등) | CodeStruct `readCode` |
@@ -50,6 +50,26 @@ Baseline에서는 모델이 `bash` 도구 하나로 모든 작업(검색·읽기
   `editCode PATH OP SELECTOR [--replacement CODE]`(CodeStruct AST 편집: `replace_node`/`insert_node`/
   `delete_node`로 함수·클래스 단위 수정), `create_file PATH [CONTENT]`(새 파일 생성). 이 원본 CLI들은
   오류가 있어도 exit code 0을 반환할 수 있어 결과·diff를 직접 확인하도록 안내한다.
+
+### 구현 코드 위치
+
+S/U/E 인터페이스는 두 층으로 나뉜다. **도구 래퍼**는 컨테이너 PATH에 설치되는 CLI이고,
+**ACI 에이전트 엔진**은 셸을 제거하고 named tool 호출·단계 전환·검증/제출을 담당한다.
+
+| 구성 | 경로 |
+| --- | --- |
+| S 도구 (AutoCodeRover 8 API) | [tools/search/](tools/search/) (`bin/`, `search_dispatch.py`, upstream `auto-code-rover`) |
+| U 도구 (CodeStruct readCode) | [tools/understanding/codestruct/](tools/understanding/codestruct/) (`bin/readCode`, upstream `CodeStruct`) |
+| E 도구 (str_replace·editCode·create_file) | [tools/editing/](tools/editing/) (`bin/`, upstream `lib`) |
+| 도구 설치 스크립트 | 각 도구의 `install.sh` (컨테이너 기동 시 PATH에 링크) |
+| 도구 JSON 스키마 | [configs/intervention-tools.json](configs/intervention-tools.json) |
+| ACI 에이전트 엔진 (named tool, 단계 전환) | [src/minisweagent/run/benchmarks/aci_staged.py](src/minisweagent/run/benchmarks/aci_staged.py) — 코드상 클래스명은 `StagedModel`/`StagedAgent` |
+| Baseline 엔진 (bash, deadline) | [src/minisweagent/run/benchmarks/aci.py](src/minisweagent/run/benchmarks/aci.py) — `DeadlineModel`/`BudgetAgent` |
+| 엔진 실행 config | [src/minisweagent/config/extra/aci-staged.yaml](src/minisweagent/config/extra/aci-staged.yaml), `aci-sue.yaml`, `aci-common.yaml` |
+
+ACI 에이전트 엔진(`aci_staged.py`)과 실행 config(`aci-staged.yaml`)는 공개 스냅샷이 baseline 기준으로
+체크아웃되어 처음 번들에서 빠졌다가, 실험에 사용한 staged run의 소스 감사본(before.tar.gz)에서
+sha256이 일치하는 바이트 그대로 복원했다(`results/provenance/source-code.json`에 해시 기록).
 
 mini 2.4.6, 공식 SWE-bench 4.1.0과 기존 도구를 사용했다. [원본 commit](configs/upstreams.lock.json),
 [mini 소스](src/minisweagent/), [도구 schema](configs/intervention-tools.json)를 포함한다.
