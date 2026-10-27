@@ -63,6 +63,9 @@ def grade(task: dict, patch: str, dataset_name: str, run_id: str, timeout: int =
         return {"status": "success", "reason": "resolved (FAIL_TO_PASS and PASS_TO_PASS pass)", "returncode": 0,
                 "report": detail}
     applied = (detail or {}).get("patch_successfully_applied")
+    if applied is None and "Patch Apply Failed" in (p.stdout + p.stderr):
+        # 하네스는 적용 실패를 error_ids 로 분류하고 개별 보고서를 남기지 않는다. 사전 규칙상 failure
+        applied = False
     if iid in summary.get("error_ids", []) and applied is not False:
         return {"status": "error", "reason": "harness error during evaluation", "returncode": p.returncode,
                 "output": (p.stdout + p.stderr)[-2000:], "report": detail}
