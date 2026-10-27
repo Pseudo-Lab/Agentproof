@@ -142,6 +142,40 @@ grep/find/cat을 수십 번 반복하다 편집·검증에 도달하지 못한 �
 명령 수와 시간 배분, 입력·출력 토큰. baseline 대비 각 개입의 효과를 task 단위 paired로 비교한다.
 dev 결과는 `results/dev/vmini-dev10-gemma-baseline/`에 있다(공식 리포트·요약·예측 patch).
 
+### S 조건 실행과 도구 인터페이스 개선 (dev10)
+
+같은 10문제에 S(AutoCodeRover 검색)를 켜고 돌렸다. 원본 S는 **5/10 resolved**로 baseline과 총점은
+같았으나, 내용이 달랐다. baseline이 `TimeExceeded`로 놓친 django-12774를 S가 해결했다(탐색 시간
+단축 가설과 일치). 또 gold 심볼 도달 순번이 평균 11.0→7.8로 빨라졌다. 그러나 검색 호출 97건을
+뜯어보니 품질 문제가 드러났다: **정상 46%, 인자오류 15%, 라인번호 폴백 34%.** 모델이
+`search_method NAME FILE`처럼 1인자 API에 파일 경로를 넘겨 argparse가 실패하면, 검색을 포기하고
+`get_code_around_line`으로 라인을 추측해 읽는 폴백이 반복됐다.
+
+이를 근거로 dispatch 래퍼(원본 백엔드는 불변)에 두 ACI 개선을 넣었다.
+
+1. **관대한 인자 라우팅**: 1인자 검색에 파일 경로가 붙으면 `*_in_file` API로 자동 라우팅한다.
+2. **exact→fuzzy 매칭**: 정확 일치가 없으면 인덱스에서 부분·근접(difflib) 심볼 후보를 제시한다.
+
+개선 S'는 검색 호출 86건에서 **인자오류 15%→1%**, 자동 라우팅 13건, fuzzy 제안 2건을 기록했다.
+결과는 여전히 5/10이지만 해결 문제가 이동했다: S'는 인자오류가 사라지며 sphinx-7757을 새로 해결했고,
+대신 baseline이 풀던 쉬운 문제(django-11790, sphinx-10673)를 놓쳤다.
+
+| 조건 | resolved | TimeExceeded | 인자오류 | 비고 |
+| --- | ---: | ---: | ---: | --- |
+| B (bash) | 5/10 | 4 | — | 쉬운 문제에 강함 |
+| S (원본) | 5/10 | 2 | 15% | django-12774 회복, 탐색 가속 |
+| S' (개선 dispatch) | 5/10 | 4 | 1% | sphinx-7757 추가 해결 |
+
+관찰과 다음 과제:
+
+- 인터페이스 품질(인자오류)은 명확히 개선됐고 어려운 문제를 하나 더 풀었지만, 총점은 그대로다.
+  S 도구 강제(tool_first)가 쉬운 문제의 작동하던 bash 흐름을 방해하는 **양날의 검** 패턴이 보인다.
+- 라인번호 폴백 34%는 S'에서도 그대로다. 이는 인자 문제가 아니라 "심볼 검색보다 라인 읽기를 선호"하는
+  행동이며, 프롬프트·정책으로 유도할 다음 과제다.
+- 10문제×1회는 ±2 이동이 노이즈인지 실제 효과인지 구분하기에 표본이 너무 작다. 조건당 5회 반복과
+  전체 Verified Mini 50문제 평가가 필요하다는 점이 이 dev 결과로 재확인된다.
+- 상세: `results/dev/comparison-S-vs-baseline.json`, 개선 dispatch는 `results/dev/search_dispatch.improved.py`(파일럿 원본은 불변).
+
 데이터셋은 이번 파일럿의 SWE-bench Lite에서 **SWE-bench Verified Mini로 전환한다.**
 mini-swe-agent 공식 결과가 SWE-bench Verified 기준으로 보고되므로, 같은 계열 벤치마크를 써야
 공식 수치와 비교할 수 있다. Verified Mini는 원본 SWE-bench Verified에서 무작위로 고른 50문제
