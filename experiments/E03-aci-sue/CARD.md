@@ -115,6 +115,33 @@ mini 2.4.6, 공식 SWE-bench 4.1.0과 기존 도구를 사용했다. [원본 com
 제한형 기준 도구(B의 S·U·E) 선정과 구현이 다음 작업이다.
 재현 스크립트 안내와 실행 도구의 정합성, 검색의 테스트 파일 제외 범위, 부분 수정 후 검증 누락을 우선 점검한다.
 
+### dev10 bring-up 결과와 S/U/E 가설
+
+후속 벤치마크(Verified Mini)에서 10문제(5 django + 5 sphinx, seed 42) dev subset으로 baseline을
+먼저 돌렸다. Gemma baseline은 **5/10 resolved**였고, 미해결 5건 중 4건이 `TimeExceeded`(600초 소진)였다.
+실패 trajectory를 명령 단위로 분류하면 탐색/읽기(shell grep·find·cat·sed)가 압도적이다.
+
+| 사례 | 결과 | 명령 수 | 탐색/읽기 비율 | 편집 |
+| --- | --- | ---: | ---: | ---: |
+| sphinx-7757 | TimeExceeded | 51 | 82% | 0 |
+| sphinx-9461 | TimeExceeded | 56 | 89% | 0 |
+| django-11880 | resolved | 26 | 69% | 제출까지 도달 |
+
+즉 baseline 실패의 주된 형태는 "구조 없는 탐색의 폭주"다. 자유 shell에서 관련 코드를 못 찾고
+grep/find/cat을 수십 번 반복하다 편집·검증에 도달하지 못한 채 시간이 끝난다. 이것이 S/U/E
+인터페이스의 개입 가설을 구체화한다.
+
+- **S (구조화 검색)**: AST 기반 심볼 검색으로 "관련 파일·심볼 찾기"의 반복을 줄여 탐색 시간을 단축한다.
+  가설: TimeExceeded 비율이 낮아지고, 성공 trial의 탐색 명령 수가 감소한다.
+- **U (구조화 읽기)**: 시그니처 우선 읽기로 거대 파일을 통째로 읽는 낭비를 줄인다.
+  가설: 입력 토큰 폭증(대형 파일 덤프) 사례가 줄고, 필요한 맥락에 더 빨리 도달한다.
+- **E (구조화 편집)**: 함수·클래스 단위 편집으로 shell rewrite의 실수(부분 수정·검증 누락)를 줄인다.
+  가설: 제출했으나 틀린 패치(django-12406 유형)가 줄어든다.
+
+각 조건은 이 가설을 지표로 검증한다: resolved 비율, TimeExceeded 비율, 단계별(탐색/읽기/편집/검증)
+명령 수와 시간 배분, 입력·출력 토큰. baseline 대비 각 개입의 효과를 task 단위 paired로 비교한다.
+dev 결과는 `results/dev/vmini-dev10-gemma-baseline/`에 있다(공식 리포트·요약·예측 patch).
+
 데이터셋은 이번 파일럿의 SWE-bench Lite에서 **SWE-bench Verified Mini로 전환한다.**
 mini-swe-agent 공식 결과가 SWE-bench Verified 기준으로 보고되므로, 같은 계열 벤치마크를 써야
 공식 수치와 비교할 수 있다. Verified Mini는 원본 SWE-bench Verified에서 무작위로 고른 50문제
