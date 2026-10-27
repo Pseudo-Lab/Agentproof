@@ -128,3 +128,10 @@ subset으로, 평가 비용이 낮아 조건당 반복 실행에 적합하다. �
 - 리더보드: Princeton HAL (`princeton-pli/hal-harness`).
 - SWE-bench Verified: OpenAI, "Introducing SWE-bench Verified" (원본 Verified 500문제의 상위 집합).
 - 원 논문: Jimenez et al., "SWE-bench: Can Language Models Resolve Real-World GitHub Issues?" (2023), arXiv:2310.06770.
+
+관련 연구: Tripathy et al., "SWEnergy: An Empirical Study on Energy Efficiency in Agentic Issue
+Resolution Frameworks with SLMs" (AGENT 2026, ICSE 2026 workshop; arXiv:2512.09543)는 SWE-Agent,
+OpenHands, Mini SWE Agent, AutoCodeRover 네 프레임워크를 Gemma-3 4B·Qwen-3 1.7B로 SWE-bench Verified
+Mini에서 비교하며 에너지·시간·토큰·메모리를 측정했다. 같은 벤치마크·프레임워크 계열을 다루므로 본 연구의
+직접 비교 대상이다. 다만 SWEnergy가 프레임워크 간 에너지 효율을 비교하는 데 비해, 본 연구는 동일 프레임워크
+(mini-swe-agent) 안에서 S·U·E 인터페이스 요소를 각각 분리해 효과를 측정하는 점이 다르다.
