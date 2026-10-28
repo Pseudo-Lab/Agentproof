@@ -141,25 +141,29 @@ grep/find/cat을 수십 번 반복하다 편집·검증에 도달하지 못한 �
 ### 평가 지표 (성능 = localization)
 
 최종 해결률(resolved)은 편집·검증·종료 정책 등 S/U/E 밖의 요인에 크게 좌우되므로, S/U의 성능은
-**결함 위치 추정(localization) 지표를 주 지표로** 측정한다. gold patch가 수정한 함수·클래스·메서드를
-정답 심볼로 두고(입자도는 함수/심볼 수준, 라인 수준은 보조), 다음을 본다.
+**탐색 과정에서의 line-level fault localization**으로 측정한다. 기존 FL 연구는 최종 출력한 위치 목록을
+file/function/line 단위 Hit@k·Recall로 채점하지만, 여기서는 에이전트가 **탐색 중 실제로 본 코드**를 채점한다.
 
-- **주 지표 1 — localization accuracy**: trajectory에서 정답 심볼에 도달했는가(도달 trial 비율).
-- **주 지표 2 — steps-to-gold**: 정답 심볼에 도달하기까지의 명령 순번(낮을수록 빨리 찾음). S/U의 핵심 효과.
-- **보조 — 도구 사용 건강성**: 검색 호출 중 정상/인자오류/못찾음/라인폴백 비율.
-- **보조 — resolved·TimeExceeded**: end-to-end 참고치. 단독으로 S/U 성능을 대표하지 않는다.
+- **정답 줄**: gold patch가 바꾸는 base commit의 줄(삭제·수정 줄). 순수 삽입은 삽입 지점의 양옆 base 줄.
+- **본 줄**: tool 관찰(observation)에 base 파일의 해당 줄 텍스트가 그대로 나타난 경우만 센다. mini의 출력
+  절단(앞뒤 5000자)을 반영하므로, 긴 파일 `cat`은 생략된 가운데 부분을 본 것으로 치지 않는다. 줄 번호가
+  있는 출력(grep -n, nl, get_code_around_line, traceback)은 번호와 텍스트가 base와 일치할 때만 인정한다.
+- **located / steps-to-locate**: 정답 줄이 처음 보인 tool call과 그 순번.
+- **lines-to-locate**: 그때까지 본 소스 줄 수(반복 포함) — 탐색 비용.
+- **hit precision**: 첫 적중 관찰에서 정답 줄 / 그 관찰의 소스 줄 — 조준 정밀도.
+- **cumulative precision**: 첫 적중의 정답 줄 / lines-to-locate — 탐색 효율.
+- **location coverage**: 탐색 전체에서 본 gold 변경 블록 / 전체 블록 — 다중 위치 문제용.
+- 보조: 도구 사용 건강성(인자오류·라인폴백), resolved·TimeExceeded.
 
-평가 운용은 "정답 심볼을 찾으면 성공"으로 localization까지만 요구할 수 있다(끝까지 고치지 않아도 되므로
-시간을 크게 아끼고 S/U 효과를 깨끗이 분리한다). 실패는 유형별로 귀인한다: localization 실패 /
-오답 편집 / 과탐색 시간초과 / 빈 패치. baseline 대비 각 개입을 task 단위 paired로 비교한다.
-dev 결과는 `results/dev/`에 있다(조건별 공식 리포트·요약·예측 patch).
+고정 줄 수 기준(예: N줄 이하) 없이 비율로 정밀도와 비용을 함께 본다. 구현은
+[src/localization_metrics.py](src/localization_metrics.py)이며, base 파일은 SWE-bench instance 이미지에서
+`git archive <base_commit>`으로 읽는다. 실행할 때마다 패치의 문맥·삭제 줄을 base 파일과 대조한다(dev10: 231줄
+전부 일치). 실패는 유형별로 귀인한다: localization 실패 / 오답 편집 / 과탐색 시간초과 / 빈 패치.
 
 ### S 조건 실행과 도구 인터페이스 개선 (dev10)
 
-같은 10문제에 S(AutoCodeRover 검색)를 켜고 돌렸다. **주 지표인 localization으로 보면** 원본 S는
-정답 심볼 도달 속도를 평균 11.0→7.8 명령으로 **29% 단축**했으나, 정확도는 9/10→8/10으로 한 건
-떨어졌다(sphinx-10673 심볼 미도달). 검색 호출 97건의 건강성을 뜯어보니 원인이 보였다:
-**정상 46%, 인자오류 15%, 라인번호 폴백 34%.** 모델이 `search_method NAME FILE`처럼 1인자 API에
+같은 10문제에 S(AutoCodeRover 검색)를 켜고 돌렸다. 검색 호출 97건의 건강성을 보면
+**정상 46%, 인자오류 15%, 라인번호 폴백 34%**였다. 모델이 `search_method NAME FILE`처럼 1인자 API에
 파일 경로를 넘겨 argparse가 실패하면, 검색을 포기하고 `get_code_around_line`으로 라인을 추측해
 읽는 폴백이 반복됐다.
 
@@ -169,16 +173,23 @@ dev 결과는 `results/dev/`에 있다(조건별 공식 리포트·요약·예�
 2. **exact→fuzzy 매칭**: 정확 일치가 없으면 인덱스에서 부분·근접(difflib) 심볼 후보를 제시한다.
 
 개선 S'는 검색 호출 86건에서 **인자오류 15%→1%**, 자동 라우팅 13건, fuzzy 제안 2건을 기록했다.
-그 결과 **localization 정확도를 9/10으로 회복(B와 동률)하면서 속도 7.8을 유지** — 세 조건 중 최선이다
-(B의 정확도 + S의 속도). 최종 resolved는 세 조건 모두 5/10이라 S'의 이 개선을 전혀 드러내지 못한다.
+line-level FL로 채점하면 세 조건 모두 10/10에서 정답 줄을 보므로 도달 여부는 변별력이 없고,
+차이는 **비용과 정밀도**에서 난다.
 
-| 조건 | localization acc | steps-to-gold(mean) | 인자오류 | (참고) resolved / TimeExceeded |
-| --- | ---: | ---: | ---: | ---: |
-| B (bash) | 9/10 | 11.0 | — | 5/10 · 4 |
-| S (원본) | 8/10 | 7.8 | 15% | 5/10 · 2 |
-| **S' (개선)** | **9/10** | **7.8** | **1%** | 5/10 · 4 |
+| 조건 | located | steps(중앙값) | lines-to-locate(중앙값) | hit prec | cumulative prec | coverage | 인자오류 | (참고) resolved |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| B (bash) | 10/10 | 4.5 | 190 | 0.063 | 0.029 | 0.90 | — | 5/10 |
+| S (원본) | 10/10 | 3.0 | 154 | 0.071 | 0.032 | 0.88 | 15% | 5/10 |
+| **S' (개선)** | 10/10 | 4.0 | **43** | **0.079** | **0.052** | 0.90 | **1%** | 5/10 |
 
-resolved는 셋 다 5/10이지만 **localization 주 지표로는 S'가 명확히 우위**다. 해결 문제 구성도 이동했다:
+S'는 정답 줄에 닿기까지 읽는 소스 줄의 중앙값을 190→43으로 줄이고 탐색 효율(cumulative precision)을
+1.8배 높였다. 다만 문제별로는 B 대비 줄 수가 줄어든 문제 4건(django-12039, sphinx-10673·11510·9461),
+늘어난 문제 4건, 같은 문제 2건으로 갈리며 총합은 1,996→1,627줄(−18%)이다. 10문제·1회라 방향만 확인한
+수준이다. 출력 절단 반영의 효과도 컸다: django-11790 B의 `cat forms.py`(435줄)는 292줄만 보여 줘 194행
+(gold)이 생략 구간에 있었고, 실제 첫 적중은 4번째 `sed -n '163,210p'`였다. 상세는
+`results/dev/localization-metrics.json`.
+
+resolved는 셋 다 5/10이다. 해결 문제 구성은 이동했다:
 S'는 sphinx-7757을 새로 해결하고, baseline이 풀던 django-11790·sphinx-10673을 놓쳤다. 이 두 손실은
 **S 검색의 결함이 아니다**:
 
@@ -191,7 +202,7 @@ S'는 sphinx-7757을 새로 해결하고, baseline이 풀던 django-11790·sphin
 
 관찰과 다음 과제:
 
-- 인터페이스 품질(인자오류)은 명확히 개선됐고 localization도 최선이 됐지만, resolved 총점은 그대로다.
+- 인터페이스 품질(인자오류)은 명확히 개선됐고 정답 줄까지 읽는 비용도 줄었지만, resolved 총점은 그대로다.
   S 도구 강제(tool_first)가 쉬운 문제의 작동하던 bash 흐름을 방해하는 **양날의 검** 패턴이 보인다.
 - 라인번호 폴백 34%는 S'에서도 그대로다. 이는 인자 문제가 아니라 "심볼 검색보다 라인 읽기를 선호"하는
   행동이며, 프롬프트·정책으로 유도할 다음 과제다.
