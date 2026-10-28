@@ -1,0 +1,27 @@
+{
+  "astropy__astropy-14182": {
+    "model_name_or_path": "openai/Qwen/Qwen3.5-27B",
+    "instance_id": "astropy__astropy-14182",
+    "model_patch": "diff --git a/astropy/io/ascii/rst.py b/astropy/io/ascii/rst.py\nindex abdeba8ef..daf5efe8f 100644\n--- a/astropy/io/ascii/rst.py\n+++ b/astropy/io/ascii/rst.py\n@@ -57,10 +57,21 @@ class RST(FixedWidth):\n     data_class = SimpleRSTData\n     header_class = SimpleRSTHeader\n \n-    def __init__(self):\n-        super().__init__(delimiter_pad=None, bookend=False)\n+    def __init__(self, header_rows=None):\n+        if header_rows is None:\n+            header_rows = [\"name\"]\n+        super().__init__(delimiter_pad=None, bookend=False, header_rows=header_rows)\n+        # For RST, data starts after: position line + header rows + position line\n+        self.data.start_line = len(header_rows) + 2\n \n     def write(self, lines):\n         lines = super().write(lines)\n-        lines = [lines[1]] + lines + [lines[1]]\n+        # Find the position line - it's after the header rows\n+        header_rows = getattr(self.data, \"header_rows\", [\"name\"])\n+        position_line_index = len(header_rows)\n+        position_line = lines[position_line_index]\n+        # Only add position line at the beginning if there are header rows\n+        if header_rows:\n+            lines = [position_line] + lines\n+        lines = lines + [position_line]\n         return lines\n"
+  },
+  "django__django-11815": {
+    "model_name_or_path": "openai/Qwen/Qwen3.5-27B",
+    "instance_id": "django__django-11815",
+    "model_patch": "diff --git a/django/db/migrations/serializer.py b/django/db/migrations/serializer.py\nindex 27b5cbd379..588d8311df 100644\n--- a/django/db/migrations/serializer.py\n+++ b/django/db/migrations/serializer.py\n@@ -120,9 +120,9 @@ class EnumSerializer(BaseSerializer):\n     def serialize(self):\n         enum_class = self.value.__class__\n         module = enum_class.__module__\n-        v_string, v_imports = serializer_factory(self.value.value).serialize()\n-        imports = {'import %s' % module, *v_imports}\n-        return \"%s.%s(%s)\" % (module, enum_class.__name__, v_string), imports\n+        enum_name = self.value.name\n+        imports = {\"import %s\" % module}\n+        return \"%s.%s['%s']\" % (module, enum_class.__name__, enum_name), imports\n \n \n class FloatSerializer(BaseSimpleSerializer):\n"
+  },
+  "matplotlib__matplotlib-18869": {
+    "model_name_or_path": "openai/Qwen/Qwen3.5-27B",
+    "instance_id": "matplotlib__matplotlib-18869",
+    "model_patch": "diff --git a/lib/matplotlib/__init__.py b/lib/matplotlib/__init__.py\nindex b657a35cf..dd699bff8 100644\n--- a/lib/matplotlib/__init__.py\n+++ b/lib/matplotlib/__init__.py\n@@ -74,6 +74,10 @@ The base matplotlib namespace includes:\n         figure is created, because it is not possible to switch between\n         different GUI backends after that.\n \n+    `~matplotlib.version_info`\n+        The version of matplotlib as a named tuple, e.g.\n+        ``version_info(3, 5, 0, 'dev', 'g12345')``.\n+\n Matplotlib was initially written by John D. Hunter (1968-2012) and is now\n developed and maintained by a host of others.\n \n@@ -131,6 +135,10 @@ __bibtex__ = r\"\"\"@Article{Hunter:2007,\n \n \n def __getattr__(name):\n+    if name == \"version_info\":\n+        global version_info\n+        version_info = _version.version_tuple\n+        return version_info\n     if name == \"__version__\":\n         import setuptools_scm\n         global __version__  # cache it.\n"
+  },
+  "mwaskom__seaborn-3010": {
+    "model_name_or_path": "openai/Qwen/Qwen3.5-27B",
+    "instance_id": "mwaskom__seaborn-3010",
+    "model_patch": "diff --git a/seaborn/_stats/regression.py b/seaborn/_stats/regression.py\nindex 7b7ddc8..25e1eb9 100644\n--- a/seaborn/_stats/regression.py\n+++ b/seaborn/_stats/regression.py\n@@ -23,6 +23,12 @@ class PolyFit(Stat):\n \n         x = data[\"x\"]\n         y = data[\"y\"]\n+\n+        # Drop rows with missing values\n+        data = data.dropna()\n+        x = data[\"x\"]\n+        y = data[\"y\"]\n+\n         if x.nunique() <= self.order:\n             # TODO warn?\n             xx = yy = []\n"
+  },
+  "pydata__xarray-4094": {
+    "model_name_or_path": "openai/Qwen/Qwen3.5-27B",
+    "instance_id": "pydata__xarray-4094",
+    "model_patch": "diff --git a/xarray/core/dataarray.py b/xarray/core/dataarray.py\nindex b0df8749..a5284f15 100644\n--- a/xarray/core/dataarray.py\n+++ b/xarray/core/dataarray.py\n@@ -1962,6 +1962,8 @@ class DataArray(AbstractArray, DataWithCoords):\n         data_dict = {}\n         for k in variables:\n             data_dict[k] = self.sel({variable_dim: k}).squeeze(drop=True)\n+            if dim in data_dict[k].coords:\n+                data_dict[k] = data_dict[k].drop_vars(dim)\n \n         # unstacked dataset\n         return Dataset(data_dict)\n"
+  }
+}

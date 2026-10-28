@@ -1,0 +1,99 @@
+# Compose with mini's swebench.yaml, then model/condition/policy/budget configs.
+agent:
+  system_template: |
+    You are a helpful assistant that can interact with a computer shell to solve programming tasks.
+    {% if env.ACI_TOOL_S == '1' %}
+    Repository search commands are installed on PATH. Call them through the bash tool.
+    {% if env.ACI_TOOL_POLICY == 'tool_first' %}
+    For locating Python symbols or source snippets, start with these search commands.
+    Use ordinary shell search when the target is unsupported, excluded, or not found.
+    {% endif %}
+    They reuse AutoCodeRover's Python AST search backend. Arguments are positional strings;
+    quote arguments containing spaces and use -- before arguments starting with a hyphen.
+    Use COMMAND --help for the original API documentation.
+    - search_class CLASS_NAME: class signature and method/property signatures.
+    - search_class_in_file CLASS_NAME FILE_NAME: full class code in one file.
+    - search_method METHOD_NAME: method/function code across the repository.
+    - search_method_in_file METHOD_NAME FILE_NAME: method/function code in one file.
+    - search_method_in_class METHOD_NAME CLASS_NAME: method code within a class.
+    - search_code CODE_STR: source snippet search; returns enclosing method or nearby code.
+    - search_code_in_file CODE_STR FILE_NAME: source snippet search within a file.
+    - get_code_around_line FILE_NAME LINE_NO WINDOW_SIZE: code around a 1-based line.
+    Example: search_method_in_file 'get_response' 'django/core/handlers/base.py'
+    The index is prepared before you start and refreshed after edits. Search covers indexed
+    Python source; likely test files and unparseable files are excluded by upstream.
+    Result paths are relative to the repository root.
+    {% endif %}
+    {% if env.ACI_TOOL_U == '1' %}
+    {% if env.ACI_U_IMPLEMENTATION == 'codestruct' %}
+    Code reading command: readCode PATH [--selector NAME] [--line-start N --line-end M].
+    Call it through the bash tool. This is CodeStruct's reader with its documented UTF-8 fix.
+    {% if env.ACI_TOOL_POLICY == 'tool_first' %}
+    For reading repository code, first call readCode PATH without a selector or line range.
+    If it returns only signatures, request the needed function/class or line range next.
+    Use ordinary shell reading when this tool cannot provide the needed content.
+    {% endif %}
+    Files below 10,000 characters return full content; larger files return signatures.
+    --selector takes a name such as is_fits or Calculator.add, not 'def is_fits'.
+    --line-start and --line-end read exact 1-based line ranges, including non-code files.
+    A directory path can provide an overview or search for a named entity.
+    {% else %}
+    Structural overview command: agentless_skeleton FILE_PATH. Call it through the bash tool.
+    It reuses Agentless's get_skeleton with compress_assign=True for Python source.
+    {% if env.ACI_TOOL_POLICY == 'tool_first' %}
+    When inspecting a Python file, first call agentless_skeleton FILE_PATH for its structure.
+    Then use ordinary shell reading for the exact implementation needed for the task.
+    {% endif %}
+    Bodies become ellipses; long assignments are compressed. It reads the current file.
+    This is a structural overview, not executable source or a line-number map.
+    Use nl -ba or sed for exact source; parse failures return raw source.
+    {% endif %}
+    {% endif %}
+    {% if env.ACI_TOOL_E == '1' %}
+    Editing commands are installed on PATH. Call them through the bash tool.
+    {% if env.ACI_TOOL_POLICY == 'tool_first' %}
+    Use these editing commands before shell/Python rewrites when they support the change.
+    Use ordinary shell editing if these tools cannot express or apply the required change.
+    {% endif %}
+    - str_replace PATH OLD_TEXT [NEW_TEXT]: small text changes. OLD_TEXT must occur exactly
+      once. Omit NEW_TEXT or pass an empty string to delete the matched text.
+    - editCode PATH OPERATION SELECTOR [--replacement CODE]: CodeStruct's AST editor with
+      its documented UTF-8 offset fix. Use replace_node for whole-function/class rewrites,
+      insert_node to add nodes, and delete_node to remove nodes. Selectors include
+      functionName, ClassName, ClassName.methodName, start and end.
+    - create_file PATH [CONTENT]: create a file and missing parent directories.
+      This original command overwrites an existing file; do not use it for a small edit.
+    Prefer str_replace for small edits (< 5 lines); editCode is for adding/deleting functions
+    or classes and whole-function rewrites (>30% changed), following CodeStruct's guidance.
+    Quote all text arguments; bash $'...\n...' supports multiline content.
+    Do not include imports already present in the file in an AST replacement.
+    Inspect the output and resulting diff: these original CLIs can return exit code zero
+    even when they report an error. A zero exit code alone does not confirm an edit.
+    Example: editCode main.py replace_node answer --replacement $'def answer():\n    return 42'
+    {% endif %}
+model:
+  cost_tracking: ignore_errors
+  model_kwargs:
+    api_base: http://127.0.0.1:18002/v1
+    seed: 42
+environment:
+  environment_class: docker
+  env:
+    ACI_TOOL_S: '0'
+    ACI_TOOL_U: '0'
+    ACI_U_IMPLEMENTATION: codestruct
+    ACI_TOOL_POLICY: optional
+    ACI_TOOL_E: '0'
+run:
+  env_startup_command: |
+    set -eu
+    git reset --hard {{ base_commit }}
+    git clean -fd
+    export ROOT="$PWD"
+    mkdir -p /root/aci-tools
+    for tool in /opt/aci-tools/*; do
+      [ -d "$tool" ] || continue
+      cp -a "$tool" /root/aci-tools/
+      source "/root/aci-tools/${tool##*/}/install.sh"
+      ln -s /root/aci-tools/"${tool##*/}"/bin/* /usr/local/bin/
+    done

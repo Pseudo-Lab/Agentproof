@@ -1,0 +1,818 @@
+#!/usr/bin/env python3
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: CC-BY-NC-4.0
+
+"""CLI wrapper for EditCode tool - Production-ready AST-based code editor
+IMPORTANT: This is an EDIT tool - it modifies existing files only, cannot create new files"""
+
+import subprocess
+import sys
+import os
+import argparse
+import ast as python_ast
+import warnings
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+# Suppress FutureWarning from tree-sitter about deprecated Language API
+warnings.filterwarnings('ignore', category=FutureWarning, module='tree_sitter')
+
+# Add Code-readwrite-mcp to Python path - bundled with tool
+SCRIPT_PATH = Path(__file__).resolve()
+BUNDLED_LIB = SCRIPT_PATH.parent.parent / "lib"
+
+POSSIBLE_PATHS = [
+    BUNDLED_LIB,  # Bundled with tool (preferred)
+    Path("/workspace/Code-readwrite-mcp"),
+    SCRIPT_PATH.parent.parent.parent.parent / "Code-readwrite-mcp",
+]
+
+CODE_READWRITE_PATH = None
+for path in POSSIBLE_PATHS:
+    if path.exists() and (path / "ast_utils.py").exists():
+        CODE_READWRITE_PATH = path
+        break
+
+if CODE_READWRITE_PATH:
+    sys.path.insert(0, str(CODE_READWRITE_PATH))
+else:
+    pass
+
+try:
+    from ast_utils import (
+        parse_scoped_selector, is_class_node, is_function_node, get_node_name,
+        get_node_signature, node_matches_selector, get_function_types, get_class_types,
+        extract_available_selectors
+    )
+    from language_detection import (
+        detect_language_from_path as detect_lang_from_path, 
+        get_language_parser as get_parser_original, 
+        validate_language_request, is_supported_language
+    )
+    detect_language_from_path = detect_lang_from_path
+    from fuzzy_search import fuzzy_search_nodes, is_fuzzy_available
+    from file_operations import read_file_safe, write_file_safe
+    from dynamic_languages import load_all_languages
+    from tree_sitter import Node
+    USE_CODE_READWRITE = True
+except ImportError as e:
+    # Fallback: Use tree-sitter-languages if Code-readwrite-mcp not available
+    USE_CODE_READWRITE = False
+    print(f"Warning: Code-readwrite-mcp not available, using simplified fallback mode")
+    print(f"Some advanced features may be limited. Error: {e}\n")
+    
+    try:
+        from tree_sitter_languages import get_parser
+        from tree_sitter import Node
+        
+        def read_file_safe(path):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            except Exception:
+                return None
+        
+        def write_file_safe(path, content):
+            try:
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                return True
+            except Exception:
+                return False
+        
+        def detect_language_from_path(file_path):
+            ext_map = {
+                '.py': 'python', '.js': 'javascript', '.jsx': 'javascript',
+                '.ts': 'typescript', '.tsx': 'typescript', '.java': 'java',
+                '.c': 'c', '.h': 'c', '.cpp': 'cpp', '.hpp': 'cpp',
+                '.cs': 'c_sharp', '.go': 'go', '.rs': 'rust',
+                '.rb': 'ruby', '.php': 'php', '.swift': 'swift',
+                '.kt': 'kotlin', '.scala': 'scala'
+            }
+            ext = Path(file_path).suffix.lower()
+            return ext_map.get(ext, 'unknown'), ext_map.get(ext, 'unknown')
+        
+        def get_parser_original(file_path):
+            lang, _ = detect_language_from_path(file_path)
+            try:
+                parser = get_parser(lang)
+                return parser, lang
+            except Exception:
+                return None, None
+        
+        def validate_language_request(lang, file_path):
+            detected, _ = detect_language_from_path(file_path)
+            return detected, detected
+        
+        print("✅ Fallback mode initialized with tree-sitter-languages")
+    except ImportError as e2:
+        print(f"❌ Error: Could not import tree-sitter-languages either: {e2}")
+        print(f"\nTo install dependencies, run:")
+        print(f"  pip3 install tree-sitter==0.21.3 tree-sitter-languages pydantic rapidfuzz")
+        # Exit early but naturally - Python will exit with 0
+        import os
+        os._exit(0)
+
+# Wrapper to use correct get_language_parser
+def get_language_parser(file_path):
+    return get_parser_original(file_path)
+
+# Load languages if Code-readwrite-mcp available
+if USE_CODE_READWRITE:
+    LANGUAGES = load_all_languages()
+else:
+    LANGUAGES = {}  # Not needed in fallback mode
+
+# Path to readCode tool (sibling directory)
+READCODE_PATH = SCRIPT_PATH.parent.parent.parent / "ast_read" / "bin" / "readCode"
+
+def run_readcode(file_path: str) -> str:
+    """Run readCode tool to get file structure"""
+    try:
+        if READCODE_PATH.exists():
+            result = subprocess.run(
+                [sys.executable, str(READCODE_PATH), file_path],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+    except Exception:
+        pass
+    return None
+
+class ProductionAstOperations:
+    """Production-ready AST operations with strict validation and verification"""
+    
+    @staticmethod
+    def verify_python_syntax(code: str, file_path: str) -> Tuple[bool, str]:
+        """Verify Python code syntax is valid"""
+        try:
+            python_ast.parse(code)
+            return True, ""
+        except SyntaxError as e:
+            return False, f"Syntax error at line {e.lineno}: {e.msg}"
+        except Exception as e:
+            return False, f"Parse error: {str(e)}"
+    
+    @staticmethod
+    def byte_to_char_offset(code: str, byte_offset: int) -> int:
+        """Convert tree-sitter's UTF-8 byte offsets before indexing Python text."""
+        return len(code.encode('utf8')[:byte_offset].decode('utf8'))
+
+    @staticmethod
+    def get_node_indentation(code: str, node: Node) -> str:
+        """Get exact indentation of a node"""
+        node_start = ProductionAstOperations.byte_to_char_offset(code, node.start_byte)
+        line_start = code.rfind('\n', 0, node_start) + 1
+        line_content = code[line_start:node_start]
+        
+        indent = ""
+        for char in line_content:
+            if char in [' ', '\t']:
+                indent += char
+            else:
+                break
+        return indent
+    
+    @staticmethod
+    def get_parent_indentation(code: str, node: Node, operation: str) -> str:
+        """Get proper indentation for insert/replace operations"""
+        target_indent = ProductionAstOperations.get_node_indentation(code, node)
+        
+        # For class nodes, methods should be indented one level in
+        if node.type in ['class_declaration', 'class_definition', 'class']:
+            return target_indent + "    "
+        
+        # For replace operations, maintain exact indentation
+        if operation == "replace_node":
+            return target_indent
+        
+        return target_indent
+    
+    @staticmethod
+    def normalize_indentation(code: str, target_indent: str) -> str:
+        """Normalize code indentation to target level.
+        
+        This preserves the relative indentation structure within the code block
+        while adjusting the base indentation to match the target.
+        
+        Special handling: LLMs sometimes provide code with inconsistent indentation
+        where the def/class line is at 0 indent but the body is at 8 spaces.
+        This function detects and corrects this pattern.
+        """
+        if not code.strip():
+            return code
+        
+        # Convert tabs to spaces for consistent handling
+        code = code.expandtabs(4)
+        target_indent = target_indent.expandtabs(4) if target_indent else ""
+        
+        lines = code.split('\n')
+        
+        # Remove leading/trailing empty lines
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and not lines[-1].strip():
+            lines.pop()
+        
+        if not lines:
+            return code
+        
+        # Find minimum indentation from non-empty lines (this is the base indent)
+        min_indent = None
+        for line in lines:
+            if line.strip():
+                leading = len(line) - len(line.lstrip())
+                if min_indent is None or leading < min_indent:
+                    min_indent = leading
+        
+        if min_indent is None:
+            min_indent = 0
+        
+        # Check for LLM indentation bug: def/class at min_indent, body at min_indent + 8
+        # This happens when LLM provides code like:
+        #   def foo():        <- 0 spaces
+        #           body      <- 8 spaces (should be 4)
+        first_non_empty = None
+        second_non_empty = None
+        for line in lines:
+            if line.strip():
+                if first_non_empty is None:
+                    first_non_empty = line
+                elif second_non_empty is None:
+                    second_non_empty = line
+                    break
+        
+        if first_non_empty and second_non_empty:
+            first_indent = len(first_non_empty) - len(first_non_empty.lstrip())
+            second_indent = len(second_non_empty) - len(second_non_empty.lstrip())
+            first_stripped = first_non_empty.strip()
+            
+            # Detect the LLM bug pattern: first line is def/class at min_indent,
+            # second line is 8+ spaces more (should be 4)
+            if (first_indent == min_indent and 
+                second_indent >= min_indent + 8 and
+                first_stripped.startswith(('def ', 'class ', 'async def '))):
+                
+                # Fix the indentation: body should be 4 spaces from def, not 8
+                expected_body_indent = 4
+                adjusted = []
+                for line in lines:
+                    if line.strip():
+                        current_indent = len(line) - len(line.lstrip())
+                        if current_indent == min_indent:
+                            # This is the def/class line - apply target indent
+                            adjusted.append(target_indent + line.lstrip())
+                        else:
+                            # Body line - normalize the extra indentation
+                            # Calculate how much extra indent this line has relative to body start
+                            relative_from_body_start = current_indent - second_indent
+                            new_indent = target_indent + (' ' * expected_body_indent) + (' ' * max(0, relative_from_body_start))
+                            adjusted.append(new_indent + line.lstrip())
+                    else:
+                        adjusted.append("")
+                
+                return '\n'.join(adjusted)
+        
+        # Default behavior: preserve relative indentation
+        adjusted = []
+        for line in lines:
+            if line.strip():
+                # Calculate relative indentation from the base
+                current_indent = len(line) - len(line.lstrip())
+                relative_indent = current_indent - min_indent
+                # Apply target indent + relative indent
+                adjusted.append(target_indent + (' ' * relative_indent) + line.lstrip())
+            else:
+                adjusted.append("")
+        
+        # Remove trailing whitespace from each line
+        adjusted = [line.rstrip() for line in adjusted]
+        
+        return '\n'.join(adjusted)
+    
+    @staticmethod
+    def find_exact_node(parser, code: str, selector: str, language: str) -> Optional[Node]:
+        """Find node with STRICT matching - no fuzzy matching for production"""
+        tree = parser.parse(bytes(code, 'utf8'))
+        
+        if selector == "start":
+            return tree.root_node.children[0] if tree.root_node.children else None
+        elif selector == "end":
+            return tree.root_node.children[-1] if tree.root_node.children else None
+        
+        class_name, method_name = parse_scoped_selector(selector)
+        matches = []
+        
+        def traverse(node: Node, class_context: str = None):
+            node_name = get_node_name(node, code)
+            
+            # Exact matching only - no fuzzy
+            if class_name and method_name:
+                # Scoped selector: must match both class and method exactly
+                if (class_context == class_name and 
+                    node_name == method_name and
+                    is_function_node(node, language)):
+                    matches.append(node)
+            elif class_name:
+                # Class selector: exact class name match
+                if node_name == class_name and is_class_node(node, language):
+                    matches.append(node)
+            else:
+                # Simple selector: exact name match (only definitions, not references)
+                if node_name == selector and (is_function_node(node, language) or is_class_node(node, language)):
+                    matches.append(node)
+            
+            # Update class context
+            current_class = class_context
+            if is_class_node(node, language):
+                current_class = node_name
+            
+            for child in node.children:
+                traverse(child, current_class)
+        
+        traverse(tree.root_node)
+        
+        # Return only if exactly one match found
+        if len(matches) == 1:
+            return matches[0]
+        elif len(matches) > 1:
+            # Multiple matches - this is ambiguous, return None
+            return None
+        else:
+            return None
+    
+    @staticmethod
+    def find_all_nodes(parser, code: str, selector: str, language: str) -> List[Node]:
+        """Find all matching nodes"""
+        tree = parser.parse(bytes(code, 'utf8'))
+        
+        if selector == "start":
+            return [tree.root_node.children[0]] if tree.root_node.children else []
+        elif selector == "end":
+            return [tree.root_node.children[-1]] if tree.root_node.children else []
+        
+        class_name, method_name = parse_scoped_selector(selector)
+        matches = []
+        
+        def traverse(node: Node, class_context: str = None):
+            node_name = get_node_name(node, code)
+            
+            if class_name and method_name:
+                if (class_context == class_name and 
+                    node_name == method_name and
+                    is_function_node(node, language)):
+                    matches.append(node)
+            elif class_name:
+                if node_name == class_name and is_class_node(node, language):
+                    matches.append(node)
+            else:
+                # Only match if it's a function or class definition, not a reference
+                if node_name == selector and (is_function_node(node, language) or is_class_node(node, language)):
+                    matches.append(node)
+            
+            current_class = class_context
+            if is_class_node(node, language):
+                current_class = node_name
+            
+            for child in node.children:
+                traverse(child, current_class)
+        
+        traverse(tree.root_node)
+        return matches
+    
+    @staticmethod
+    def get_available_selectors_message(file_path: str, parser, code: str, language: str) -> str:
+        """Get formatted message of available selectors"""
+        tree = parser.parse(bytes(code, 'utf8'))
+        available = extract_available_selectors(tree.root_node, code, language)
+        
+        msg = "Available selectors:\n\n"
+        
+        if available['classes']:
+            msg += "Classes:\n"
+            for cls in available['classes']:
+                msg += f"  • {cls['name']} (line {cls['line']})\n"
+            msg += "\n"
+        
+        if available['functions']:
+            msg += "Top-level Functions:\n"
+            for func in available['functions']:
+                msg += f"  • {func['name']} (line {func['line']})\n"
+            msg += "\n"
+        
+        if available['methods']:
+            class_methods = {}
+            for method in available['methods']:
+                class_name = method['parent_class']
+                if class_name not in class_methods:
+                    class_methods[class_name] = []
+                class_methods[class_name].append(method)
+            
+            for class_name, methods in class_methods.items():
+                msg += f"Methods in {class_name}:\n"
+                for method in methods:
+                    msg += f"  • {class_name}.{method['name']} (line {method['line']})\n"
+                msg += "\n"
+        
+        if not any([available['classes'], available['functions'], available['methods']]):
+            msg += "  (no code constructs found)\n"
+        
+        return msg
+    
+    @staticmethod
+    def execute_operation(file_path: str, language: str, operation: str, selector: str,
+                         replacement: str = None, old_str: str = None, new_str: str = None) -> Dict[str, str]:
+        """Execute operation with production-level validation"""
+        try:
+            # Read original code
+            original_code = read_file_safe(file_path)
+            if original_code is None:
+                return {"status": "error", "message": f"Could not read file: {file_path}"}
+            
+            # Get parser
+            parser, lang = get_language_parser(file_path)
+            if not parser:
+                detected_lang = detect_language_from_path(file_path)
+                return {"status": "error", "message": f"Unsupported language: {detected_lang} (file: {file_path})"}
+            
+            # Verify original syntax for Python files
+            if file_path.endswith('.py'):
+                valid, error = ProductionAstOperations.verify_python_syntax(original_code, file_path)
+                if not valid:
+                    return {"status": "error", "message": f"Original file has syntax errors: {error}"}
+            
+            new_code = None
+            
+            # Execute operation
+            if operation == "delete_node":
+                nodes = ProductionAstOperations.find_all_nodes(parser, original_code, selector, language)
+                if not nodes:
+                    msg = f"❌ Selector '{selector}' not found in {Path(file_path).name}\n\n"
+                    msg += "⚠️ DO NOT REPEAT THIS SAME COMMAND - it will fail again!\n\n"
+                    # Run readCode to show file structure
+                    readcode_output = run_readcode(file_path)
+                    if readcode_output:
+                        msg += f"File structure (from readCode):\n{readcode_output}\n\n"
+                    else:
+                        msg += ProductionAstOperations.get_available_selectors_message(
+                            file_path, parser, original_code, language)
+                    msg += f"\n✅ TO FIX: Use one of the selectors listed above."
+                    return {"status": "error", "message": msg}
+                
+                new_code = original_code
+                for node in sorted(nodes, key=lambda n: n.start_byte, reverse=True):
+                    # Delete the entire line(s) containing the node
+                    node_start = ProductionAstOperations.byte_to_char_offset(original_code, node.start_byte)
+                    node_end = ProductionAstOperations.byte_to_char_offset(original_code, node.end_byte)
+                    line_start = original_code.rfind('\n', 0, node_start) + 1
+                    line_end = original_code.find('\n', node_end)
+                    if line_end == -1:
+                        line_end = len(original_code)
+                    else:
+                        line_end += 1  # Include the newline
+                    
+                    new_code = new_code[:line_start] + new_code[line_end:]
+            
+            else:
+                # Find target node (strict matching)
+                target = ProductionAstOperations.find_exact_node(parser, original_code, selector, language)
+                
+                if not target:
+                    # Check if multiple matches exist
+                    all_matches = ProductionAstOperations.find_all_nodes(parser, original_code, selector, language)
+                    if len(all_matches) > 1:
+                        msg = f"❌ AMBIGUOUS SELECTOR: '{selector}' matches {len(all_matches)} locations:\n\n"
+                        for i, node in enumerate(all_matches[:5], 1):
+                            name = get_node_name(node, original_code)
+                            line = node.start_point[0] + 1
+                            # Try to get parent class context
+                            parent = node.parent
+                            class_context = None
+                            while parent:
+                                if parent.type in ['class_declaration', 'class_definition', 'class']:
+                                    class_context = get_node_name(parent, original_code)
+                                    break
+                                parent = parent.parent
+                            if class_context:
+                                msg += f"  {i}. {class_context}.{name} at line {line}\n"
+                            else:
+                                msg += f"  {i}. {name} at line {line}\n"
+                        
+                        msg += "\n⚠️ DO NOT REPEAT THIS SAME COMMAND - it will fail again!\n\n"
+                        msg += "✅ TO FIX, use ONE of these approaches:\n"
+                        msg += f"  1. Use qualified selector: editCode {file_path} {operation} ClassName.{selector} --replacement '...'\n"
+                        msg += f"  2. Use str_replace instead: str_replace {file_path} 'exact old code' 'exact new code'\n"
+                        return {"status": "error", "message": msg}
+                    else:
+                        # Selector not found - run readCode to show file structure
+                        msg = f"❌ Selector '{selector}' not found in {Path(file_path).name}\n\n"
+                        msg += "⚠️ DO NOT REPEAT THIS SAME COMMAND - it will fail again!\n\n"
+                        # Run readCode to show file structure
+                        readcode_output = run_readcode(file_path)
+                        if readcode_output:
+                            msg += f"File structure (from readCode):\n{readcode_output}\n\n"
+                        else:
+                            msg += ProductionAstOperations.get_available_selectors_message(
+                                file_path, parser, original_code, language)
+                        msg += f"\n✅ TO FIX: Use one of the selectors listed above, or use str_replace for exact text matching."
+                        return {"status": "error", "message": msg}
+                
+                target_start = ProductionAstOperations.byte_to_char_offset(original_code, target.start_byte)
+                target_end = ProductionAstOperations.byte_to_char_offset(original_code, target.end_byte)
+
+                # Execute specific operation
+                if operation == "replace_node":
+                    if not replacement:
+                        return {"status": "error", "message": "replacement required for replace_node"}
+                    
+                    # Detect if this is a top-level class/function that should have no indentation
+                    is_top_level = False
+                    if target.type in ['class_declaration', 'class_definition', 'class', 'function_definition']:
+                        # Check if parent is module root
+                        parent = target.parent
+                        while parent and parent.type in ['block', 'module']:
+                            if parent.type == 'module' or parent.parent is None:
+                                is_top_level = True
+                                break
+                            parent = parent.parent
+                    
+                    if is_top_level:
+                        # Top-level constructs should have no indentation
+                        target_indent = ""
+                    else:
+                        target_indent = ProductionAstOperations.get_parent_indentation(
+                            original_code, target, "replace_node")
+                    
+                    normalized = ProductionAstOperations.normalize_indentation(replacement, target_indent)
+                    
+                    # Replace from the start of the line (including original indentation)
+                    # to properly handle the indentation
+                    line_start = original_code.rfind('\n', 0, target_start) + 1
+                    new_code = original_code[:line_start] + normalized + original_code[target_end:]
+                
+                elif operation == "insert_node":
+                    if not replacement:
+                        return {"status": "error", "message": "replacement required for insert_node"}
+                    
+                    target_indent = ProductionAstOperations.get_parent_indentation(
+                        original_code, target, "insert_node")
+                    normalized = ProductionAstOperations.normalize_indentation(replacement, target_indent)
+                    
+                    # Insert after target node
+                    if target.type in ['class_declaration', 'class_definition', 'class']:
+                        # For classes, insert before the closing of the class
+                        # Find the last method in the class
+                        insert_pos = target_end - 1
+                        for child in target.children:
+                            if child.type in ['block', 'class_body']:
+                                for block_child in child.children:
+                                    if block_child.type in ['function_definition', 'method_definition']:
+                                        insert_pos = ProductionAstOperations.byte_to_char_offset(original_code, block_child.end_byte)
+                        
+                        new_code = original_code[:insert_pos] + "\n\n" + normalized + original_code[insert_pos:]
+                    else:
+                        # For functions, insert after
+                        line_end = original_code.find('\n', target_end)
+                        if line_end == -1:
+                            line_end = len(original_code)
+                        else:
+                            line_end += 1
+                        
+                        new_code = original_code[:line_end] + "\n" + normalized + "\n" + original_code[line_end:]
+                
+                elif operation == "replace_in_node":
+                    if not old_str or new_str is None:
+                        return {"status": "error", "message": "old_str and new_str required for replace_in_node"}
+                    
+                    if old_str == new_str:
+                        return {"status": "error", "message": "old_str and new_str cannot be the same"}
+                    
+                    node_content = original_code[target_start:target_end]
+                    count = node_content.count(old_str)
+                    
+                    if count == 0:
+                        return {"status": "error", 
+                                "message": f"old_str '{old_str}' not found in target node '{selector}'"}
+                    elif count > 1:
+                        return {"status": "error",
+                                "message": f"old_str appears {count} times in node, must appear exactly once"}
+                    
+                    updated_content = node_content.replace(old_str, new_str, 1)
+                    new_code = original_code[:target_start] + updated_content + original_code[target_end:]
+                
+                else:
+                    return {"status": "error", "message": f"Unknown operation: {operation}"}
+            
+            # Verify new code syntax for Python files
+            if file_path.endswith('.py') and new_code:
+                valid, error = ProductionAstOperations.verify_python_syntax(new_code, file_path)
+                if not valid:
+                    return {"status": "error", 
+                            "message": f"Operation would create syntax errors: {error}\nOperation aborted."}
+            
+            # Write file
+            if not write_file_safe(file_path, new_code):
+                return {"status": "error", "message": f"Could not write to file: {file_path}"}
+            
+            return {"status": "success", 
+                    "message": f"✅ Successfully executed {operation} on '{selector}'"}
+        
+        except Exception as e:
+            return {"status": "error", "message": f"Operation failed: {str(e)}"}
+
+class StringOperations:
+    """String replacement with validation"""
+    
+    @staticmethod
+    def execute(file_path: str, old_str: str, new_str: str) -> Dict[str, str]:
+        """Execute string replacement with validation"""
+        try:
+            if old_str == new_str:
+                return {"status": "error", "message": "old_str and new_str cannot be the same"}
+            
+            content = read_file_safe(file_path)
+            if content is None:
+                return {"status": "error", "message": f"Could not read file: {file_path}"}
+            
+            count = content.count(old_str)
+            
+            if count == 0:
+                # Show a preview of the file to help debug
+                lines = content.split('\n')
+                preview_lines = min(20, len(lines))
+                preview = '\n'.join(f"  {i+1}: {line[:80]}{'...' if len(line) > 80 else ''}" for i, line in enumerate(lines[:preview_lines]))
+                if len(lines) > preview_lines:
+                    preview += f"\n  ... ({len(lines) - preview_lines} more lines)"
+                
+                msg = f"❌ old_str not found in {Path(file_path).name}\n\n"
+                msg += "⚠️ DO NOT REPEAT THIS SAME COMMAND - it will fail again!\n\n"
+                msg += "The exact string you provided does not exist in the file.\n"
+                msg += "Common causes: extra/missing whitespace, wrong indentation, or typos.\n\n"
+                msg += f"File preview ({Path(file_path).name}):\n{preview}\n\n"
+                msg += "✅ TO FIX: Copy the EXACT text from the file, including whitespace."
+                return {"status": "error", "message": msg}
+            elif count > 1:
+                return {"status": "error", 
+                        "message": f"old_str appears {count} times, must appear exactly once"}
+            
+            new_content = content.replace(old_str, new_str, 1)
+            
+            # Verify syntax for Python files
+            if file_path.endswith('.py'):
+                valid, error = ProductionAstOperations.verify_python_syntax(new_content, file_path)
+                if not valid:
+                    return {"status": "error",
+                            "message": f"Replacement would create syntax errors: {error}"}
+            
+            if not write_file_safe(file_path, new_content):
+                return {"status": "error", "message": f"Could not write to file: {file_path}"}
+            
+            return {"status": "success", "message": "✅ String replacement completed successfully"}
+        
+        except Exception as e:
+            return {"status": "error", "message": f"String operation failed: {str(e)}"}
+
+def fix_shell_escaping(text: str) -> str:
+    """Fix common shell escaping artifacts that break Python syntax.
+    
+    When bash passes single-quoted strings, it uses '"'"' to represent a literal
+    single quote. This function converts these back to actual single quotes.
+    """
+    if not text:
+        return text
+    
+    # Fix bash single-quote escaping: '"'"' -> '
+    # This pattern appears when bash includes a single quote inside single-quoted strings
+    fixed = text.replace("'\"'\"'", "'")
+    
+    # Also handle the reverse pattern: "'"'" -> '
+    fixed = fixed.replace('"\'"\'"', "'")
+    
+    # Handle escaped backslash-quote patterns
+    # Pattern: \'"'"'\' -> \'
+    fixed = fixed.replace("\\'\"\'\"'\\'", "\\'")
+    
+    return fixed
+
+def edit_code(path: str, operation: str = None, selector: str = None,
+              replacement: str = None, old_str: str = None, new_str: str = None,
+              language: str = "auto") -> str:
+    """Production-ready code editing with strict validation"""
+    
+    # Fix shell escaping in all string inputs
+    if replacement:
+        replacement = fix_shell_escaping(replacement)
+    if old_str:
+        old_str = fix_shell_escaping(old_str)
+    if new_str:
+        new_str = fix_shell_escaping(new_str)
+    
+    # Use path as-is - don't resolve relative paths
+    # This allows relative paths to work correctly from the current working directory
+    file_path = Path(path)
+    
+    if not file_path.exists() or not file_path.is_file():
+        return f"❌ Error: File not found: {file_path}\n(This tool can only EDIT existing files)"
+    
+    detected_language, _ = validate_language_request(language, str(file_path))
+    
+    has_ast = operation and selector
+    has_string = old_str is not None and new_str is not None
+    
+    if not has_ast and not has_string:
+        return "❌ Error: Need either (operation + selector) or (old_str + new_str)"
+    
+    if has_ast:
+        if operation in ['replace_node', 'insert_node'] and not replacement:
+            return f"❌ Error: replacement required for {operation}"
+        if operation == 'replace_in_node' and (not old_str or new_str is None):
+            return "❌ Error: old_str and new_str required for replace_in_node"
+        
+        result = ProductionAstOperations.execute_operation(
+            str(file_path), detected_language, operation, selector,
+            replacement, old_str, new_str)
+    else:
+        result = StringOperations.execute(str(file_path), old_str, new_str)
+    
+    if result["status"] == "error":
+        return f"❌ Error: {result['message']}"
+    
+    return result["message"]
+
+def main():
+    """CLI entry point"""
+    parser = argparse.ArgumentParser(
+        description="EditCode - Production-ready AST-based code editor (EDITS existing files only)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  writeCode main.py replace_node myFunction --replacement "def myFunction():\\n    return 42"
+  writeCode main.py insert_node Calculator --replacement "def subtract(self, a, b):\\n    return a - b"
+  writeCode main.py delete_node oldFunction
+  writeCode main.py replace_in_node myFunction --old_str "return x" --new_str "return x * 2"
+  writeCode main.py --old_str "old code" --new_str "new code"
+        """
+    )
+    
+    parser.add_argument('path', help='File path to modify (must exist)')
+    parser.add_argument('operation', nargs='?',
+                       choices=['replace_node', 'insert_node', 'delete_node', 'replace_in_node'],
+                       help='AST operation')
+    parser.add_argument('selector', nargs='?', help='Target selector')
+    parser.add_argument('--replacement', help='New code')
+    parser.add_argument('--old_str', help='String to find')
+    parser.add_argument('--new_str', help='Replacement string')
+    parser.add_argument('--language', default='auto', help='Language (auto-detected)')
+    
+    try:
+        # Use parse_known_args to handle unknown arguments gracefully
+        args, unknown = parser.parse_known_args()
+        
+        # If there are unknown args, report them as unrecognized but don't crash
+        if unknown:
+            print(f"Warning: Ignoring unrecognized arguments: {' '.join(unknown)}")
+    except SystemExit:
+        return 0
+    
+    if args.operation:
+        if not args.selector:
+            print("❌ Error: selector required with operation")
+            return 0
+        
+        if args.operation in ['replace_node', 'insert_node'] and not args.replacement:
+            print(f"❌ Error: --replacement required for {args.operation}")
+            return 0
+        
+        if args.operation == 'replace_in_node' and (not args.old_str or not args.new_str):
+            print("❌ Error: --old_str and --new_str required for replace_in_node")
+            return 0
+    else:
+        if not args.old_str or not args.new_str:
+            print("❌ Error: Need either --content (create) or --old_str + --new_str (edit)")
+            return 0
+    
+    result = edit_code(
+        path=args.path,
+        operation=args.operation,
+        selector=args.selector,
+        replacement=args.replacement,
+        old_str=args.old_str,
+        new_str=args.new_str,
+        language=args.language
+    )
+    print(result)
+    return 0
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n❌ Error: Operation interrupted")
+    except MemoryError:
+        print("❌ Error: Out of memory during AST parsing")
+    except Exception as e:
+        print(f"❌ Error: Unexpected crash: {type(e).__name__}: {e}")
+    # Let Python exit naturally with 0 - errors are communicated via stdout

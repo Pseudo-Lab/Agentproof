@@ -1,0 +1,27 @@
+{
+  "astropy__astropy-14182": {
+    "model_name_or_path": "openai/google/gemma-4-31B-it",
+    "instance_id": "astropy__astropy-14182",
+    "model_patch": "diff --git a/astropy/io/ascii/rst.py b/astropy/io/ascii/rst.py\nindex abdeba8ef..b42c04c66 100644\n--- a/astropy/io/ascii/rst.py\n+++ b/astropy/io/ascii/rst.py\n@@ -57,10 +57,10 @@ class RST(FixedWidth):\n     data_class = SimpleRSTData\n     header_class = SimpleRSTHeader\n \n-    def __init__(self):\n-        super().__init__(delimiter_pad=None, bookend=False)\n+    def __init__(self, **kwargs):\n+        super().__init__(delimiter_pad=None, bookend=False, **kwargs)\n \n-    def write(self, lines):\n-        lines = super().write(lines)\n-        lines = [lines[1]] + lines + [lines[1]]\n-        return lines\n+    def write(self, table):\n+        lines = super().write(table)\n+        separator_line = lines[len(self.data.header_rows)]\n+        return [separator_line] + lines + [separator_line]\n"
+  },
+  "django__django-11815": {
+    "model_name_or_path": "openai/google/gemma-4-31B-it",
+    "instance_id": "django__django-11815",
+    "model_patch": "diff --git a/django/db/migrations/serializer.py b/django/db/migrations/serializer.py\nindex 27b5cbd379..dee0996961 100644\n--- a/django/db/migrations/serializer.py\n+++ b/django/db/migrations/serializer.py\n@@ -120,9 +120,7 @@ class EnumSerializer(BaseSerializer):\n     def serialize(self):\n         enum_class = self.value.__class__\n         module = enum_class.__module__\n-        v_string, v_imports = serializer_factory(self.value.value).serialize()\n-        imports = {'import %s' % module, *v_imports}\n-        return \"%s.%s(%s)\" % (module, enum_class.__name__, v_string), imports\n+        return \"%s.%s['%s']\" % (module, enum_class.__name__, self.value.name), {'import %s' % module}\n \n \n class FloatSerializer(BaseSimpleSerializer):\n"
+  },
+  "matplotlib__matplotlib-18869": {
+    "model_name_or_path": "openai/google/gemma-4-31B-it",
+    "instance_id": "matplotlib__matplotlib-18869",
+    "model_patch": "diff --git a/lib/matplotlib/__init__.py b/lib/matplotlib/__init__.py\nindex b657a35cf..ff670332d 100644\n--- a/lib/matplotlib/__init__.py\n+++ b/lib/matplotlib/__init__.py\n@@ -148,6 +148,24 @@ def __getattr__(name):\n         else:  # Get the version from the _version.py setuptools_scm file.\n             __version__ = _version.version\n         return __version__\n+    if name == \"version_info\":\n+        try:\n+            version_str = __version__\n+        except NameError:\n+            version_str = __getattr__(\"__version__\")\n+\n+        from packaging.version import parse as parse_version\n+        v = parse_version(version_str)\n+        res = list(v.release)\n+        if v.pre:\n+            res.append(f\"{v.pre[0]}{v.pre[1]}\")\n+        if v.dev:\n+            res.append(f\"dev{v.dev}\")\n+        if v.post:\n+            res.append(f\"post{v.post}\")\n+        if v.local:\n+            res.append(v.local)\n+        return tuple(res)\n     raise AttributeError(f\"module {__name__!r} has no attribute {name!r}\")\n \n \n"
+  },
+  "mwaskom__seaborn-3010": {
+    "model_name_or_path": "openai/google/gemma-4-31B-it",
+    "instance_id": "mwaskom__seaborn-3010",
+    "model_patch": "diff --git a/seaborn/_stats/regression.py b/seaborn/_stats/regression.py\nindex 7b7ddc8..6ba8246 100644\n--- a/seaborn/_stats/regression.py\n+++ b/seaborn/_stats/regression.py\n@@ -23,6 +23,10 @@ class PolyFit(Stat):\n \n         x = data[\"x\"]\n         y = data[\"y\"]\n+        mask = x.notna() & y.notna()\n+        x = x[mask]\n+        y = y[mask]\n+\n         if x.nunique() <= self.order:\n             # TODO warn?\n             xx = yy = []\n"
+  },
+  "pydata__xarray-4094": {
+    "model_name_or_path": "openai/google/gemma-4-31B-it",
+    "instance_id": "pydata__xarray-4094",
+    "model_patch": "diff --git a/xarray/core/dataarray.py b/xarray/core/dataarray.py\nindex b0df8749..8af6f161 100644\n--- a/xarray/core/dataarray.py\n+++ b/xarray/core/dataarray.py\n@@ -1948,6 +1948,7 @@ class DataArray(AbstractArray, DataWithCoords):\n         See Also\n         --------\n         Dataset.to_stacked_array\n+        DataArray.stack\n         \"\"\"\n \n         idx = self.indexes[dim]\n@@ -1961,7 +1962,7 @@ class DataArray(AbstractArray, DataWithCoords):\n         # pull variables out of datarray\n         data_dict = {}\n         for k in variables:\n-            data_dict[k] = self.sel({variable_dim: k}).squeeze(drop=True)\n+            data_dict[k] = self.sel({variable_dim: k}).squeeze(drop=True).drop_vars(dim, errors=\"ignore\")\n \n         # unstacked dataset\n         return Dataset(data_dict)\n"
+  }
+}

@@ -1,0 +1,60 @@
+# Last overlay after aci-sue.yaml and aci-wall600.yaml. Our staged policy.
+agent:
+  system_template: |
+    You solve repository issues through named Search / Understanding / Editing tools.
+    There is no shell tool, arbitrary command execution, or inline Python execution.
+    Supply tool arguments as JSON data, with exactly one tool call per response.
+    Do not wrap arguments in shell quotes. Tool names and argument schemas are provided.
+
+    Start in S by searching with AutoCodeRover's search APIs. Search covers indexed Python
+    source and excludes tests/unparseable files. Read the returned code and locations.
+    You may search repeatedly. When you have a candidate file, call readCode to enter U.
+    In U, first readCode(path) for the file; if it returns signatures, request the relevant
+    selector or line range. Ask for more code whenever necessary. You may return to S by
+    calling a search tool. Once U has been entered, E remains available when returning to S.
+    Locations need not have appeared in search results: paths from the issue or
+    previously read code are also permitted.
+
+    After U, use an editing tool to enter E. Follow CodeStruct's original guidance:
+    str_replace for small changes, editCode for adding/deleting or rewriting functions and
+    classes, create_file for new source files. These tools can print errors even with exit
+    code zero: inspect the actual result. You may return to U or S when context is missing.
+    The first next-stage tool performs the action and changes stage; there is no separate
+    stage-switch command. Available tools reflect the current stage.
+
+    run_tests, view_diff and submit are available in every stage and do not change stage.
+    Use run_tests for pytest paths/options, or Django labels/options (for example model_fields).
+    You may create or modify tests with the editing tools and run them with the test runner.
+    A target string is one runner argument; an array supplies multiple arguments.
+    Use view_diff to inspect the patch and submit to finish. Their optional paths argument
+    selects the intended source files using git pathspecs; omit it for all changes.
+    Keep temporary verification files out of the submitted patch, as in mini's original
+    submission instructions. The framework collects the patch; no patch.txt is needed.
+    You may submit an empty patch if unable to solve the issue.
+    Tool descriptions inherited from upstream may mention shell tools;
+    only the named tools actually supplied in this session are available.
+  instance_template: |
+    <pr_description>
+    {{task}}
+    </pr_description>
+
+    Fix the issue in /testbed.
+    Use the provided named tools, one action at a time. Submit the resulting source patch.
+model:
+  model_class: minisweagent.run.benchmarks.aci_staged.StagedModel
+  model_kwargs:
+    parallel_tool_calls: false
+  observation_template: |
+    {% if output.exception_info -%}
+    <exception>{{output.exception_info}}</exception>
+    {% endif -%}
+    <stage>{{ output.extra.stage }}</stage>
+    <returncode>{{ output.returncode }}</returncode>
+    {% if output.output | length < 10000 %}
+    <output>{{ output.output }}</output>
+    {% else %}
+    <warning>Output exceeds 10000 characters. Narrow the search or request a specific file, selector, or line range using the provided tools.</warning>
+    <output_head>{{ output.output[:5000] }}</output_head>
+    <elided_chars>{{ output.output | length - 10000 }}</elided_chars>
+    <output_tail>{{ output.output[-5000:] }}</output_tail>
+    {% endif %}

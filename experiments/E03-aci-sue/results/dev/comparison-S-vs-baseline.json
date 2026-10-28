@@ -1,0 +1,120 @@
+{
+  "experiment": "E03 S-tool improvement (dev10 bring-up)",
+  "model": "google/gemma-4-31B-it",
+  "dataset": "SWE-bench Verified Mini dev10 (seed=42, 5 django + 5 sphinx)",
+  "time_limit_seconds": 600,
+  "conditions": {
+    "baseline": "bash only (ACI_TOOL_S/U/E=0)",
+    "S": "AutoCodeRover search, original dispatch (ACI_TOOL_S=1)",
+    "Simproved": "S with lenient arg routing + exact-then-fuzzy matching in dispatch"
+  },
+  "resolved": {
+    "baseline": 5,
+    "S": 5,
+    "Simproved": 5
+  },
+  "tool_call_quality": {
+    "S": {
+      "arg_error_pct": 15,
+      "line_fallback_pct": 34
+    },
+    "Simproved": {
+      "arg_error_pct": 1,
+      "auto_routed": 13,
+      "fuzzy_shown": 2,
+      "line_fallback_pct": 34
+    }
+  },
+  "per_instance": {
+    "django__django-11790": {
+      "B": true,
+      "S": false,
+      "Simproved": false
+    },
+    "django__django-11880": {
+      "B": true,
+      "S": true,
+      "Simproved": true
+    },
+    "django__django-12039": {
+      "B": true,
+      "S": true,
+      "Simproved": true
+    },
+    "django__django-12406": {
+      "B": false,
+      "S": false,
+      "Simproved": false
+    },
+    "django__django-12774": {
+      "B": false,
+      "S": true,
+      "Simproved": true
+    },
+    "sphinx-doc__sphinx-10673": {
+      "B": true,
+      "S": true,
+      "Simproved": false
+    },
+    "sphinx-doc__sphinx-11510": {
+      "B": false,
+      "S": false,
+      "Simproved": false
+    },
+    "sphinx-doc__sphinx-7757": {
+      "B": false,
+      "S": false,
+      "Simproved": true
+    },
+    "sphinx-doc__sphinx-9320": {
+      "B": true,
+      "S": true,
+      "Simproved": true
+    },
+    "sphinx-doc__sphinx-9461": {
+      "B": false,
+      "S": false,
+      "Simproved": false
+    }
+  },
+  "findings": [
+    "All three score 5/10, but solved problems differ (not a tie in substance).",
+    "S/S solved django-12774 which baseline lost to TimeExceeded (search cuts exploration time).",
+    "S' additionally solved sphinx-7757 once tool-call argument errors were fixed (15%->1%).",
+    "S-family lost two easy problems baseline solved (11790, 10673): forcing tools can disrupt a working bash flow.",
+    "line-number read fallback stays at 34% even in S (not an argument issue; a prompting/policy issue).",
+    "10 tasks x 1 run is too small to tell the +/-2 movement from noise; needs 5 repeats and full 50-task Verified Mini."
+  ],
+  "primary_metric": "line-level fault localization on exploration trajectories (see localization-metrics.json); resolved is secondary",
+  "localization": {
+    "B": {
+      "located": "10/10",
+      "median_steps_to_locate": 4.5,
+      "median_lines_to_locate": 189.5,
+      "mean_hit_precision": 0.0632,
+      "mean_cumulative_precision": 0.0289,
+      "mean_location_coverage": 0.895
+    },
+    "S": {
+      "located": "10/10",
+      "median_steps_to_locate": 3.0,
+      "median_lines_to_locate": 154.0,
+      "mean_hit_precision": 0.071,
+      "mean_cumulative_precision": 0.0319,
+      "mean_location_coverage": 0.88
+    },
+    "Simproved": {
+      "located": "10/10",
+      "median_steps_to_locate": 4.0,
+      "median_lines_to_locate": 43.0,
+      "mean_hit_precision": 0.0786,
+      "mean_cumulative_precision": 0.0524,
+      "mean_location_coverage": 0.9
+    },
+    "source": "results/dev/localization-metrics.json (supersedes the earlier symbol-name heuristic)"
+  },
+  "lost_tasks_attribution": {
+    "django__django-11790": "wrong edit strategy (widget_attrs() misuse) despite correct localization -> E/edit problem, not search",
+    "sphinx-doc__sphinx-10673": "over-exploration (27 shell reads) missed submit deadline -> stopping-policy problem"
+  }
+}

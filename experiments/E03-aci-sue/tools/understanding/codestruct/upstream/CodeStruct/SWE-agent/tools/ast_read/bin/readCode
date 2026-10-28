@@ -1,0 +1,671 @@
+#!/usr/bin/env python3
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: CC-BY-NC-4.0
+
+"""CLI wrapper for readCode tool - fully self-contained AST-based code analysis"""
+
+import sys
+import os
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+# ========== EMBEDDED: Language Detection & Parser Creation ==========
+
+def detect_language_from_extension(file_path: str) -> str:
+    """Detect language from file extension"""
+    EXTENSION_MAP = {
+        '.py': 'python',
+        '.js': 'javascript',
+        '.jsx': 'javascript',
+        '.ts': 'typescript',
+        '.tsx': 'typescript',
+        '.java': 'java',
+        '.c': 'c',
+        '.h': 'c',
+        '.cpp': 'cpp',
+        '.hpp': 'cpp',
+        '.cc': 'cpp',
+        '.cxx': 'cpp',
+        '.cs': 'c_sharp',
+        '.go': 'go',
+        '.rs': 'rust',
+        '.rb': 'ruby',
+        '.php': 'php',
+        '.swift': 'swift',
+        '.kt': 'kotlin',
+        '.scala': 'scala',
+    }
+    ext = Path(file_path).suffix.lower()
+    return EXTENSION_MAP.get(ext, 'unknown')
+
+# Global flag to track if we've already warned about missing tree-sitter
+_tree_sitter_warning_shown = False
+
+def get_language_parser(file_path: str):
+    """Get tree-sitter parser for file - with graceful fallback"""
+    global _tree_sitter_warning_shown
+    import warnings
+    
+    lang = detect_language_from_extension(file_path)
+    supported = ['python', 'javascript', 'typescript', 'java', 'c', 'cpp', 
+                 'c_sharp', 'go', 'rust', 'ruby', 'php', 'swift', 'kotlin', 'scala']
+    
+    if lang not in supported:
+        return None, None
+    
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', category=FutureWarning, module='tree_sitter')
+        
+        # Try tree-sitter-language-pack first
+        try:
+            from tree_sitter_language_pack import get_parser
+            parser = get_parser(lang)
+            return parser, lang
+        except (ImportError, Exception):
+            pass
+        
+        # Try tree-sitter-languages
+        try:
+            from tree_sitter_languages import get_parser
+            parser = get_parser(lang)
+            return parser, lang
+        except (ImportError, Exception):
+            pass
+        
+        return None, None
+
+def get_code_files(dir_path: str, max_depth: int = 2) -> List[str]:
+    """Get code files in directory with depth limit (default: 2)"""
+    code_extensions = {'.py', '.js', '.jsx', '.ts', '.tsx', '.java', '.c', '.h', 
+                      '.cpp', '.hpp', '.cc', '.cs', '.go', '.rs', '.rb', '.php',
+                      '.swift', '.kt', '.scala'}
+    files = []
+    base_depth = dir_path.count(os.sep)
+    
+    for root, dirs, filenames in os.walk(dir_path):
+        current_depth = root.count(os.sep) - base_depth
+        
+        # Process files at current level
+        for filename in filenames:
+            if Path(filename).suffix.lower() in code_extensions:
+                files.append(os.path.join(root, filename))
+        
+        # Stop recursing if we've reached max depth
+        if current_depth >= max_depth:
+            dirs[:] = []
+        else:
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d != 'node_modules']
+    
+    return sorted(files)
+
+# ========== EMBEDDED: AST Utilities ==========
+
+def get_function_types(lang: str) -> List[str]:
+    """Get function/method node types for a language"""
+    return [
+        'function_definition', 'method_definition', 'function_declaration',
+        'function_item', 'method_declaration', 'constructor_declaration',
+        'function', 'method', 'impl_item', 'function_declarator',
+        'function_expression', 'def'
+    ]
+
+def get_class_types(lang: str) -> List[str]:
+    """Get class/struct node types for a language"""
+    return [
+        'class_definition', 'class_declaration', 'class_body',
+        'struct_specifier', 'class_specifier', 'type_declaration',
+        'struct_item', 'impl_item', 'trait_item', 'interface_declaration',
+        'struct_declaration', 'class_expression', 'module', 'class'
+    ]
+
+# ========== EMBEDDED: Fuzzy Search ==========
+
+def fuzzy_match(selector: str, name: str) -> bool:
+    """Simple fuzzy matching - checks if selector matches name loosely"""
+    selector_lower = selector.lower()
+    name_lower = name.lower()
+    
+    # Exact match
+    if selector_lower == name_lower:
+        return True
+    
+    # Contains match (for short selectors)
+    if len(selector) <= 6 and selector_lower in name_lower:
+        return True
+    
+    # Partial match (name contains selector)
+    if selector_lower in name_lower:
+        return True
+    
+    # Abbreviation match (selector chars appear in order in name)
+    sel_idx = 0
+    for char in name_lower:
+        if sel_idx < len(selector_lower) and char == selector_lower[sel_idx]:
+            sel_idx += 1
+    if sel_idx == len(selector_lower):
+        return True
+    
+    return False
+
+def fuzzy_search_signatures(signatures: List[Dict], selector: str) -> List[Dict]:
+    """Search signatures with fuzzy matching"""
+    # Handle scoped selectors (Class.method)
+    if '.' in selector:
+        class_name, method_name = selector.split('.', 1)
+        matches = []
+        for sig in signatures:
+            if sig.get('parentClass') and fuzzy_match(class_name, sig['parentClass']):
+                if fuzzy_match(method_name, sig['name']):
+                    matches.append(sig)
+        return matches
+    
+    # Non-scoped search
+    matches = []
+    for sig in signatures:
+        if fuzzy_match(selector, sig['name']):
+            matches.append(sig)
+    return matches
+
+# ========== EMBEDDED: File Operations ==========
+
+class SimpleCache:
+    """Simple in-memory cache"""
+    def __init__(self):
+        self.cache = {}
+    
+    def get(self, key):
+        return self.cache.get(key)
+    
+    def set(self, key, value):
+        self.cache[key] = value
+
+cache = SimpleCache()
+
+def read_file_safe(file_path: str) -> Optional[str]:
+    """Safely read file contents"""
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except Exception:
+        return None
+
+# ========== Core Functions ==========
+
+def extract_signatures(file_path: str) -> List[Dict]:
+    """Extract function/class signatures with caching - SAFE: never crashes"""
+    cached = cache.get(file_path)
+    if cached is not None:
+        return cached
+    
+    # Verify file exists before parsing
+    if not Path(file_path).exists():
+        return []
+    
+    # SAFETY: Wrap everything in try-except to prevent ANY crashes
+    try:
+        parser, lang = get_language_parser(file_path)
+        if not parser:
+            cache.set(file_path, [])
+            return []
+    except Exception:
+        cache.set(file_path, [])
+        return []
+    
+    try:
+        code = read_file_safe(file_path)
+        if code is None:
+            cache.set(file_path, [])
+            return []
+    except Exception:
+        cache.set(file_path, [])
+        return []
+    
+    try:
+        tree = parser.parse(bytes(code, 'utf8'))
+    except Exception:
+        cache.set(file_path, [])
+        return []
+    
+    signatures = []
+    
+    def traverse(node, class_name=None):
+        function_types = get_function_types(lang)
+        class_types = get_class_types(lang)
+        
+        if node.type in function_types:
+            name_node = node.child_by_field_name('name')
+            if not name_node and node.children:
+                for child in node.children:
+                    if child.type in ['identifier', 'field_identifier']:
+                        name_node = child
+                        break
+            
+            if name_node:
+                line = name_node.start_point[0] + 1
+                sig_text = node.text.decode('utf8').split('\n')[0]
+                full_impl = node.text.decode('utf8')
+                
+                signatures.append({
+                    'type': 'function',
+                    'name': name_node.text.decode('utf8'),
+                    'signature': sig_text.strip(),
+                    'line': line,
+                    'className': class_name,
+                    'parentClass': class_name,
+                    'isStatic': False,
+                    'implementation': full_impl
+                })
+        
+        elif node.type in class_types:
+            name_node = node.child_by_field_name('name')
+            if not name_node and node.children:
+                for child in node.children:
+                    if child.type in ['identifier', 'type_identifier']:
+                        name_node = child
+                        break
+            
+            if name_node:
+                current_class = name_node.text.decode('utf8')
+                line = name_node.start_point[0] + 1
+                full_impl = node.text.decode('utf8')
+                signatures.append({
+                    'type': 'class',
+                    'name': current_class,
+                    'signature': "class {}".format(current_class),
+                    'line': line,
+                    'className': None,
+                    'parentClass': None,
+                    'isStatic': False,
+                    'implementation': full_impl
+                })
+                for child in node.children:
+                    traverse(child, current_class)
+                return
+        
+        for child in node.children:
+            traverse(child, class_name)
+    
+    try:
+        traverse(tree.root_node)
+    except Exception:
+        # SAFETY: If traversal fails, return what we have so far
+        pass
+    
+    cache.set(file_path, signatures)
+    return signatures
+
+def safe_code_block(code: str) -> str:
+    """Safely format code block to avoid bash escaping issues"""
+    # Replace problematic characters that can break bash
+    # Keep the code readable but safe for shell processing
+    safe = code.replace('\r', '')
+    # Remove any null bytes or other control characters that could cause issues
+    safe = ''.join(char for char in safe if ord(char) >= 32 or char in '\n\t')
+    return safe.strip()
+
+def format_signatures(signatures: List[Dict], file_path: str, compact: bool = True) -> str:
+    """Format signatures - compact mode shows one-line summaries to reduce tokens"""
+    if compact:
+        return format_signatures_compact(signatures, file_path)
+    
+    grouped = {}
+    for sig in signatures:
+        key = sig['className'] or 'Global'
+        if key not in grouped:
+            grouped[key] = []
+        grouped[key].append(sig)
+    
+    result = "Code signatures in {}:\n\n".format(Path(file_path).name)
+    
+    for group, sigs in grouped.items():
+        if group != 'Global':
+            result += "Class {}:\n".format(group)
+        
+        for sig in sigs:
+            prefix = 'static ' if sig['isStatic'] else ''
+            result += "  {}: {}{} (Line {})\n".format(sig['type'], prefix, sig['signature'], sig['line'])
+        result += '\n'
+    
+    return result.strip()
+
+def format_signatures_compact(signatures: List[Dict], file_path: str, max_lines: int = 50) -> str:
+    """Compact format with line numbers for all symbols"""
+    # Group by class
+    classes = {}
+    global_funcs = []
+    
+    for sig in signatures:
+        if sig['type'] == 'class':
+            classes[sig['name']] = {'line': sig['line'], 'methods': []}
+        elif sig.get('parentClass'):
+            if sig['parentClass'] in classes:
+                classes[sig['parentClass']]['methods'].append(sig)
+        else:
+            global_funcs.append(sig)
+    
+    lines = []
+    lines.append("Signatures in {} ({} symbols):".format(Path(file_path).name, len(signatures)))
+    
+    # Format classes with method line numbers: "L10: class Foo | methods: bar(L15), baz(L30)"
+    for cls_name, cls_info in list(classes.items())[:max_lines]:
+        methods = cls_info['methods']
+        if methods:
+            # Show method names with line numbers
+            method_strs = ["{}(L{})".format(m['name'], m['line']) for m in methods[:8]]
+            method_str = ", ".join(method_strs)
+            if len(methods) > 8:
+                method_str += "... +{}".format(len(methods) - 8)
+            lines.append("L{}: class {} | {}".format(cls_info['line'], cls_name, method_str))
+        else:
+            lines.append("L{}: class {}".format(cls_info['line'], cls_name))
+    
+    # Format global functions: "L25: func_name"
+    for func in global_funcs[:max_lines - len(classes)]:
+        name = func['name']
+        lines.append("L{}: {}".format(func['line'], name))
+    
+    remaining = len(signatures) - len(lines) + 1
+    if remaining > 0:
+        lines.append("... +{} more (use selector to get details)".format(remaining))
+    
+    return "\n".join(lines)
+
+def get_context_preview(file_path: str, start_line: int, preview_lines: int = 15) -> Tuple[str, int, int]:
+    """Get context preview around a line with smart boundaries"""
+    code = read_file_safe(file_path)
+    if not code:
+        return "", start_line, start_line
+    
+    lines = code.split('\n')
+    total_lines = len(lines)
+    
+    # Calculate preview window
+    preview_start = max(0, start_line - 3)
+    preview_end = min(total_lines, start_line + preview_lines)
+    
+    # Get preview lines
+    preview_lines_list = lines[preview_start:preview_end]
+    
+    # Format with line numbers
+    formatted = []
+    for i, line in enumerate(preview_lines_list, start=preview_start + 1):
+        formatted.append("{:4d} | {}".format(i, line))
+    
+    return '\n'.join(formatted), preview_start + 1, preview_end
+
+def search_selector_in_file(signatures: List[Dict], selector: str, file_path: str) -> str:
+    """Search for selector in file signatures with fuzzy matching - shows full implementation"""
+    matches = fuzzy_search_signatures(signatures, selector)
+    
+    if matches:
+        result = "Found {} match(es) for '{}' in {}:\n\n".format(len(matches), selector, Path(file_path).name)
+        
+        for i, match in enumerate(matches[:5]):
+            class_context = " in {}".format(match['parentClass']) if match.get('parentClass') else ""
+            if len(matches) > 1:
+                result += "Match {}: {} {}{} (Line {})\n\n".format(i+1, match['type'], match['name'], class_context, match['line'])
+            else:
+                result += "{}: {}{} (Line {})\n\n".format(match['type'], match['name'], class_context, match['line'])
+            
+            # Show full implementation
+            impl = match.get('implementation', match['signature'])
+            if len(impl) > 30000:
+                impl = impl[:30000] + '\n... (truncated, use --line-start/--line-end for more)'
+            impl = safe_code_block(impl)
+            result += "{}\n\n".format(impl)
+            
+            # Add note for classes that this includes all methods
+            if match['type'] == 'class':
+                result += "[NOTE: Above shows COMPLETE class including all methods. Do NOT re-read individual methods.]\n\n"
+        
+        if len(matches) > 5:
+            result += "... and {} more matches\n".format(len(matches) - 5)
+        
+        return result
+    else:
+        result = "No match for '{}' in {}.\n\n".format(selector, Path(file_path).name)
+        result += "Available signatures:\n\n"
+        result += format_signatures(signatures, file_path)
+        return result
+
+def read_code(path: str, selector: str = None, language: str = "auto", depth: int = 2, line_start: int = None, line_end: int = None) -> str:
+    """Read and analyze code with optional selector search, depth limit, and line range"""
+    if not path or path == '':
+        path = '.'
+    
+    # Handle path doubling when CWD name appears in relative path
+    cwd = Path.cwd()
+    path_obj = Path(path).expanduser()
+    
+    # If path starts with CWD name and we're in that directory, strip it
+    if not path_obj.is_absolute():
+        parts = path_obj.parts
+        if parts and parts[0] == cwd.name:
+            path_obj = Path(*parts[1:]) if len(parts) > 1 else Path('.')
+    
+    abs_path = path_obj.resolve()
+    
+    if not abs_path.exists():
+        return "Error: Path not found: {}".format(abs_path)
+    
+    if abs_path.is_file():
+        # Handle line range request
+        if line_start is not None or line_end is not None:
+            code = read_file_safe(str(abs_path))
+            if not code:
+                return "Error: Could not read {}".format(abs_path.name)
+            lines = code.split('\n')
+            total_lines = len(lines)
+            start = (line_start - 1) if line_start else 0
+            end = line_end if line_end else total_lines
+            
+            # Check if requested range exceeds file length
+            if end > total_lines:
+                selected_lines = lines[start:]
+                content = safe_code_block('\n'.join(selected_lines))
+                return "Note: Requested end line {} exceeds file length ({} lines).\nShowing lines {}-{} of {}:\n\n{}".format(end, total_lines, start+1, total_lines, abs_path.name, content)
+            
+            selected_lines = lines[start:end]
+            content = safe_code_block('\n'.join(selected_lines))
+            return "Lines {}-{} of {}:\n\n{}".format(start+1, end, abs_path.name, content)
+        
+        signatures = extract_signatures(str(abs_path))
+        
+        # If selector is provided, always search for it
+        if selector:
+            if not signatures:
+                # Fallback: show file content or all signatures based on file size
+                code = read_file_safe(str(abs_path))
+                if code:
+                    if len(code) < 10000:
+                        # Small file: show full content
+                        safe_content = safe_code_block(code)
+                        return "No AST signatures found in {} (parser may not be available).\nShowing file content ({} chars):\n\n{}".format(abs_path.name, len(code), safe_content)
+                    else:
+                        # Large file: just show error
+                        return "No signatures found in {} - cannot search for '{}' (file too large: {} chars)".format(abs_path.name, selector, len(code))
+                return "No signatures found in {} - cannot search for '{}'".format(abs_path.name, selector)
+            return search_selector_in_file(signatures, selector, str(abs_path))
+        
+        # No selector provided - return full content for small files, otherwise signatures
+        if not signatures:
+            # If no signatures and no selector, try to return file content for small files
+            code = read_file_safe(str(abs_path))
+            if code:
+                if len(code) < 10000:  # 10,000 characters threshold
+                    safe_content = safe_code_block(code)
+                    return "Full content of {} ({} chars):\n\n{}".format(abs_path.name, len(code), safe_content)
+                else:
+                    # Large file without signatures - suggest using line range
+                    return "No signatures found in {} (file has {} chars).\nUse 'readCode {} --line-start 1 --line-end 100' to read specific lines.".format(abs_path.name, len(code), abs_path.name)
+            return "No signatures found in {}".format(abs_path.name)
+        
+        # Has signatures, no selector - return full content for small files, limited signatures for large
+        try:
+            code = read_file_safe(str(abs_path))
+            if code and len(code) < 10000:  # 10,000 characters threshold
+                safe_content = safe_code_block(code)
+                return "Full content of {} ({} chars):\n\n{}".format(abs_path.name, len(code), safe_content)
+        except Exception:
+            pass
+        # Limit signatures to first 100 when no selector provided
+        if len(signatures) > 100:
+            limited = signatures[:100]
+            result = format_signatures(limited, str(abs_path))
+            result += "\n\n... and {} more signatures.\nTIP: Use 'readCode {} ClassName' to search for specific code.".format(len(signatures) - 100, abs_path.name)
+            return result
+        return format_signatures(signatures, str(abs_path))
+    else:
+        files = get_code_files(str(abs_path), max_depth=depth)
+        if not files:
+            return "No code files found in {}".format(abs_path.name)
+        
+        # If selector provided, search across all files
+        if selector:
+            matches = []
+            for file_path in files:
+                signatures = extract_signatures(file_path)
+                if signatures:
+                    file_matches = fuzzy_search_signatures(signatures, selector)
+                    if file_matches:
+                        rel_path = os.path.relpath(file_path, str(abs_path))
+                        matches.append((rel_path, file_path, file_matches))
+            
+            if matches:
+                result = "Found '{}' in {} file(s):\n\n".format(selector, len(matches))
+                for rel_path, full_path, file_matches in matches[:5]:
+                    result += "{}:\n".format(rel_path)
+                    for match in file_matches[:2]:
+                        class_context = " in {}".format(match['parentClass']) if match.get('parentClass') else ""
+                        result += "  {}: {}{} (Line {})\n\n".format(match['type'], match['name'], class_context, match['line'])
+                        
+                        # Show full implementation
+                        impl = match.get('implementation', match['signature'])
+                        if len(impl) > 15000:
+                            impl = impl[:15000] + '\n... (truncated)'
+                        impl = safe_code_block(impl)
+                        indented = '\n'.join('    ' + line for line in impl.split('\n'))
+                        result += "{}\n\n".format(indented)
+                    
+                    if len(file_matches) > 2:
+                        result += "  ... and {} more matches\n".format(len(file_matches) - 2)
+                    result += "\n"
+                if len(matches) > 5:
+                    result += "... and {} more files\n".format(len(matches) - 5)
+                return result.strip()
+            else:
+                return "No matches for '{}' in {}/ ({} files searched)".format(selector, abs_path.name, len(files))
+        
+        # No selector - show overview of files (limit output)
+        files_with_sigs = []
+        for file_path in files:
+            signatures = extract_signatures(file_path)
+            if signatures:
+                files_with_sigs.append((file_path, signatures))
+        
+        if not files_with_sigs:
+            # Check if tree-sitter is available
+            test_parser, _ = get_language_parser(files[0] if files else 'test.py')
+            if test_parser is None:
+                # Fallback: list files with basic info when tree-sitter unavailable
+                result = "Directory {}/ ({} code files, tree-sitter unavailable):\n\n".format(abs_path.name, len(files))
+                for f in files[:30]:
+                    rel = os.path.relpath(f, str(abs_path))
+                    result += "  {}\n".format(rel)
+                if len(files) > 30:
+                    result += "  ... and {} more\n".format(len(files) - 30)
+                result += "\nUse 'readCode <file> --line-start 1 --line-end 100' to read content."
+                return result
+            return "No parseable code files found in {}/ ({} files scanned)".format(abs_path.name, len(files))
+        
+        # Show top-level summary if moderately many files (15-100)
+        if len(files_with_sigs) > 15:
+            result = "Code signatures in {}/ ({} files with code):\n\n".format(abs_path.name, len(files_with_sigs))
+            result += "TIP: Use 'readCode <path> ClassName' to search for specific classes/functions.\n\n"
+            
+            # Show just file names and class counts for large directories
+            for file_path, signatures in files_with_sigs[:15]:
+                rel_path = os.path.relpath(file_path, str(abs_path))
+                classes = [s['name'] for s in signatures if s['type'] == 'class']
+                functions = [s for s in signatures if s['type'] == 'function' and not s.get('parentClass')]
+                
+                parts = []
+                if classes:
+                    parts.append("{} class(es): {}{}".format(len(classes), ', '.join(classes[:3]), '...' if len(classes) > 3 else ''))
+                if functions:
+                    parts.append("{} function(s)".format(len(functions)))
+                
+                result += "{}: {}\n".format(rel_path, ', '.join(parts) if parts else 'code')
+            
+            if len(files_with_sigs) > 15:
+                result += "\n... and {} more files\n".format(len(files_with_sigs) - 15)
+            return result.strip()
+        
+        # Detailed view for smaller directories
+        result = "Code signatures in {}/ ({} files):\n\n".format(abs_path.name, len(files_with_sigs))
+        for file_path, signatures in files_with_sigs:
+            rel_path = os.path.relpath(file_path, str(abs_path))
+            result += "{}:\n".format(rel_path)
+            grouped = {}
+            for sig in signatures:
+                key = sig['className'] or 'Global'
+                if key not in grouped:
+                    grouped[key] = []
+                grouped[key].append(sig)
+            
+            for group, sigs in grouped.items():
+                if group != 'Global':
+                    result += "  Class {}:\n".format(group)
+                for sig in sigs[:5]:
+                    prefix = 'static ' if sig['isStatic'] else ''
+                    result += "    {}: {}{} (Line {})\n".format(sig['type'], prefix, sig['signature'], sig['line'])
+                if len(sigs) > 5:
+                    result += "    ... and {} more\n".format(len(sigs) - 5)
+            result += '\n'
+        
+        return result.strip()
+
+def main():
+    """Parse CLI arguments and call read_code function"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(
+        description="Advanced code analysis tool with AST parsing and fuzzy search",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  readCode src/main.py
+  readCode src/main.py --selector Calculator
+  readCode src --selector Calculator.add
+  readCode src/main.py --language python
+  readCode src --selector UserManager --language python
+        """
+    )
+    
+    parser.add_argument('path', help='File or directory path to analyze')
+    parser.add_argument('--selector', nargs='?', default=None, help='Symbol name to search for (optional, no keywords like "class", "def")')
+    parser.add_argument('--language', default='auto', help='Programming language hint (auto-detected if not specified)')
+    parser.add_argument('--depth', type=int, default=2, help='Max directory depth to scan (default: 2, use 999 for unlimited)')
+    parser.add_argument('--line-start', type=int, default=None, help='Start line number (1-indexed)')
+    parser.add_argument('--line-end', type=int, default=None, help='End line number (inclusive)')
+    
+    # Use parse_known_args to handle unknown arguments gracefully (e.g., --skip-checks as selector)
+    args, unknown = parser.parse_known_args()
+    
+    # Handle empty strings as None to prevent bash parsing errors
+    selector = args.selector if args.selector and args.selector.strip() else None
+    
+    # If there are unknown args and no selector, treat the first unknown as selector
+    # This handles cases like: readCode testbed --selector --skip-checks
+    # where --skip-checks was intended as the selector value
+    if unknown and not selector:
+        # Join unknown args as the selector (strip leading dashes for cleaner search)
+        selector = ' '.join(unknown)
+        # Don't strip dashes - keep original for accurate search
+    
+    result = read_code(path=args.path, selector=selector, language=args.language, depth=args.depth, 
+                      line_start=args.line_start, line_end=args.line_end)
+    print(result)
+
+if __name__ == "__main__":
+    main()

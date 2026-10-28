@@ -1,0 +1,94 @@
+--- a/bin/editCode
++++ b/bin/editCode
+@@ -157,10 +157,16 @@
+             return False, f"Parse error: {str(e)}"
+     
+     @staticmethod
++    def byte_to_char_offset(code: str, byte_offset: int) -> int:
++        """Convert tree-sitter's UTF-8 byte offsets before indexing Python text."""
++        return len(code.encode('utf8')[:byte_offset].decode('utf8'))
++
++    @staticmethod
+     def get_node_indentation(code: str, node: Node) -> str:
+         """Get exact indentation of a node"""
+-        line_start = code.rfind('\n', 0, node.start_byte) + 1
+-        line_content = code[line_start:node.start_byte]
++        node_start = ProductionAstOperations.byte_to_char_offset(code, node.start_byte)
++        line_start = code.rfind('\n', 0, node_start) + 1
++        line_content = code[line_start:node_start]
+         
+         indent = ""
+         for char in line_content:
+@@ -459,8 +465,10 @@
+                 new_code = original_code
+                 for node in sorted(nodes, key=lambda n: n.start_byte, reverse=True):
+                     # Delete the entire line(s) containing the node
+-                    line_start = original_code.rfind('\n', 0, node.start_byte) + 1
+-                    line_end = original_code.find('\n', node.end_byte)
++                    node_start = ProductionAstOperations.byte_to_char_offset(original_code, node.start_byte)
++                    node_end = ProductionAstOperations.byte_to_char_offset(original_code, node.end_byte)
++                    line_start = original_code.rfind('\n', 0, node_start) + 1
++                    line_end = original_code.find('\n', node_end)
+                     if line_end == -1:
+                         line_end = len(original_code)
+                     else:
+@@ -512,6 +520,9 @@
+                         msg += f"\n✅ TO FIX: Use one of the selectors listed above, or use str_replace for exact text matching."
+                         return {"status": "error", "message": msg}
+                 
++                target_start = ProductionAstOperations.byte_to_char_offset(original_code, target.start_byte)
++                target_end = ProductionAstOperations.byte_to_char_offset(original_code, target.end_byte)
++
+                 # Execute specific operation
+                 if operation == "replace_node":
+                     if not replacement:
+@@ -539,8 +550,8 @@
+                     
+                     # Replace from the start of the line (including original indentation)
+                     # to properly handle the indentation
+-                    line_start = original_code.rfind('\n', 0, target.start_byte) + 1
+-                    new_code = original_code[:line_start] + normalized + original_code[target.end_byte:]
++                    line_start = original_code.rfind('\n', 0, target_start) + 1
++                    new_code = original_code[:line_start] + normalized + original_code[target_end:]
+                 
+                 elif operation == "insert_node":
+                     if not replacement:
+@@ -554,17 +565,17 @@
+                     if target.type in ['class_declaration', 'class_definition', 'class']:
+                         # For classes, insert before the closing of the class
+                         # Find the last method in the class
+-                        insert_pos = target.end_byte - 1
++                        insert_pos = target_end - 1
+                         for child in target.children:
+                             if child.type in ['block', 'class_body']:
+                                 for block_child in child.children:
+                                     if block_child.type in ['function_definition', 'method_definition']:
+-                                        insert_pos = block_child.end_byte
++                                        insert_pos = ProductionAstOperations.byte_to_char_offset(original_code, block_child.end_byte)
+                         
+                         new_code = original_code[:insert_pos] + "\n\n" + normalized + original_code[insert_pos:]
+                     else:
+                         # For functions, insert after
+-                        line_end = original_code.find('\n', target.end_byte)
++                        line_end = original_code.find('\n', target_end)
+                         if line_end == -1:
+                             line_end = len(original_code)
+                         else:
+@@ -579,7 +590,7 @@
+                     if old_str == new_str:
+                         return {"status": "error", "message": "old_str and new_str cannot be the same"}
+                     
+-                    node_content = original_code[target.start_byte:target.end_byte]
++                    node_content = original_code[target_start:target_end]
+                     count = node_content.count(old_str)
+                     
+                     if count == 0:
+@@ -590,7 +601,7 @@
+                                 "message": f"old_str appears {count} times in node, must appear exactly once"}
+                     
+                     updated_content = node_content.replace(old_str, new_str, 1)
+-                    new_code = original_code[:target.start_byte] + updated_content + original_code[target.end_byte:]
++                    new_code = original_code[:target_start] + updated_content + original_code[target_end:]
+                 
+                 else:
+                     return {"status": "error", "message": f"Unknown operation: {operation}"}
