@@ -210,6 +210,41 @@ S'는 sphinx-7757을 새로 해결하고, baseline이 풀던 django-11790·sphin
   전체 Verified Mini 50문제 평가가 필요하다는 점이 이 dev 결과로 재확인된다.
 - 상세: `results/dev/comparison-S-vs-baseline.json`, 개선 dispatch는 `results/dev/search_dispatch.improved.py`(파일럿 원본은 불변).
 
+### Verified Mini 50: localization-only 평가
+
+Verified Mini 50문제 전체를 B·S·S'로 한 번씩 돌렸다. 정답 줄이 관찰에 처음 보이면 trial을 `Located`로
+끝내므로([locate/locate_stop.py](locate/locate_stop.py), 판정은 사후 지표와 같은 코드) 편집·테스트에는 예산을
+쓰지 않는다. 600초 안에 못 찾으면 `TimeExceeded`다. S'는 원본 `tools/search` 위에 개선 dispatch 파일만
+겹쳐 마운트했다([locate/aci-s-improved.yaml](locate/aci-s-improved.yaml)). 세 조건을 한 Gemma 서버에서
+조건당 3 worker로 동시에 실행해 150 trial이 약 29분에 끝났다(dev10 전체 풀이는 조건당 약 30분).
+런타임 종료와 사후 판정은 150건 모두 일치했고, 패치 문맥·삭제 줄 1,046줄이 base 파일과 모두 일치했다.
+
+| 조건 | located | steps 중앙값 | lines-to-locate 중앙값 | hit prec | cumulative prec | 검색 인자오류 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| B | 48/50 | 4 | 197 | 0.101 | 0.070 | — |
+| S | 47/50 | 4 | 104 | 0.134 | 0.072 | 12% |
+| S' | 49/50 | 4 | 104 | 0.123 | 0.089 | 1% |
+
+B 대비 문제별 paired 비교(두 조건 모두 찾은 문제, 양측 sign test):
+
+| 비교 | steps 적게/많이/같음 | p | steps 합 | lines 적게/많이/같음 | p | lines 합 |
+| --- | --- | ---: | ---: | --- | ---: | ---: |
+| B→S (50) | 21/16/10 | 0.51 | 299→255 | 20/21/6 | 1.00 | 9,180→7,780 |
+| B→S' (50) | 25/10/12 | 0.017 | 285→204 | 23/18/6 | 0.53 | 8,880→7,278 |
+| B→S' (held-out 40) | 19/8/10 | 0.052 | 218→155 | 17/15/5 | 0.86 | 6,652→5,693 |
+
+- S'는 B보다 적은 tool call로 정답 줄에 도달한다(50문제 p=0.017, 합 −28%). S' 설계에 쓰지 않은
+  held-out 40에서도 같은 방향이다(p=0.052, −29%).
+- 읽은 줄 수는 합계 −18%지만 문제별로 갈려(23/18) 유의하지 않고, 문제별 비율의 중앙값은 1.0이다.
+- 원본 S는 B와 문제별 차이가 없다. S와 S'의 차이는 dispatch 래퍼뿐이며 인자오류가 12%→1%로 줄었다.
+- located는 세 조건 모두 천장(47~49/50)이라 변별력이 없다. 미도달: B는 sphinx-8265·8638, S는 그 둘과
+  sphinx-8548, S'는 django-12273.
+- 한계: 조건당 1회(temperature 1). 동시 실행이라 응답 지연이 dev10보다 크며, steps 지표는 지연과 무관하지만
+  TimeExceeded 판정은 영향을 받는다. 조기 종료라 coverage는 첫 적중만 반영하므로 보고하지 않는다.
+  dev10은 S' 설계에 쓰여 in-sample이다.
+- 데이터: [subset 메타](src/minisweagent/config/datasets/swe-verified-mini-50-20261028.json)(HF revision
+  `b316c34`), 결과 `results/dev/vmini50-localization-metrics.json`, 실행 명령 `results/dev/vmini50-locate-commands.txt`.
+
 데이터셋은 이번 파일럿의 SWE-bench Lite에서 **SWE-bench Verified Mini로 전환한다.**
 mini-swe-agent 공식 결과가 SWE-bench Verified 기준으로 보고되므로, 같은 계열 벤치마크를 써야
 공식 수치와 비교할 수 있다. Verified Mini는 원본 SWE-bench Verified에서 무작위로 고른 50문제
