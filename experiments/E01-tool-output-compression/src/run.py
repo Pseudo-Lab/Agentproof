@@ -44,11 +44,24 @@ MINI_CONFIG = yaml.safe_load((package_dir / "config" / "mini_textbased.yaml").re
 
 # ---------------------------------------------------------------- 설정
 
-def load_configs() -> dict:
-    cfgs = {c: json.loads((EXPERIMENT / f"configs/{c}.json").read_text()) for c in CONDITIONS}
+DEFAULT_CONFIG_DIR = EXPERIMENT / "configs"
+
+
+def config_label(config_dir: Path, condition: str) -> str:
+    """trials.jsonl 에 남길 설정 파일 경로. 실험 폴더 기준 상대 경로로 쓴다."""
+    path = Path(config_dir).resolve() / f"{condition}.json"
+    try:
+        return str(path.relative_to(EXPERIMENT))
+    except ValueError:
+        return str(path)
+
+
+def load_configs(config_dir: Path = DEFAULT_CONFIG_DIR) -> dict:
+    config_dir = Path(config_dir)
+    cfgs = {c: json.loads((config_dir / f"{c}.json").read_text()) for c in CONDITIONS}
     for c, cfg in cfgs.items():
         if cfg.get("condition") != c:
-            raise SystemExit(f"configs/{c}.json: condition 필드가 {c} 가 아닙니다")
+            raise SystemExit(f"{config_label(config_dir, c)}: condition 필드가 {c} 가 아닙니다")
     a, b = (copy.deepcopy(cfgs[c]) for c in CONDITIONS)
     for k in ("condition", "compression"):
         a.pop(k, None); b.pop(k, None)
@@ -115,7 +128,7 @@ def mock_outputs(task: dict, condition: str) -> list[dict]:
 # ---------------------------------------------------------------- 한 번의 시도
 
 def run_trial(task: dict, condition: str, cfg: dict, repeat: int, mode: str, out_dir: Path, run_id: str,
-              dataset_name: str | None = None) -> dict:
+              dataset_name: str | None = None, config_path: str | None = None) -> dict:
     limits = cfg["limits"]
     seed = cfg["seeds"][repeat - 1]
     traj_path = out_dir / "trajectories" / task["task_id"] / condition / f"repeat-{repeat}.json"
@@ -230,7 +243,7 @@ def run_trial(task: dict, condition: str, cfg: dict, repeat: int, mode: str, out
             "input_tokens": in_tok if tokens_measured else None,
             "output_tokens": out_tok if tokens_measured else None, "cost_usd": None,
             "missing_reasons": missing,
-            "evidence": {"config": f"configs/{condition}.json",
+            "evidence": {"config": config_path or f"configs/{condition}.json",
                          "trajectory": str(traj_path.relative_to(out_dir)),
                          "termination": exit_status or ("infra_error" if infra_error else "unknown"),
                          "turns": agent.n_calls, "seed": seed,
@@ -258,11 +271,14 @@ def main():
     ap.add_argument("--limit-tasks", type=int, help="앞에서부터 N개 과제만 (연습용)")
     ap.add_argument("--repeats", type=int, help="설정의 repeats 를 덮어쓴다 (연습용). manifest 에 기록됨")
     ap.add_argument("--resume", action="store_true", help="기존 run-id 폴더에 이어서 돈다. 끝난 시도는 건너뜀")
+    ap.add_argument("--config-dir", default=str(DEFAULT_CONFIG_DIR),
+                    help="baseline.json·intervention.json 이 든 폴더 (기본 configs). manifest 에 기록됨")
     args = ap.parse_args()
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", args.run_id):
         ap.error("run-id 는 영숫자, _, - 만")
 
-    cfgs = load_configs()
+    cfgs = load_configs(Path(args.config_dir))
+    config_paths = {c: config_label(Path(args.config_dir), c) for c in CONDITIONS}
     tasks_doc = json.loads(Path(args.tasks).read_text())
     tasks = tasks_doc["tasks"][: args.limit_tasks] if args.limit_tasks else tasks_doc["tasks"]
     task_ids = [t["task_id"] for t in tasks]
@@ -293,7 +309,7 @@ def main():
                                           if any(t.get("kind") == "swebench" for t in tasks)
                                           else "minisweagent/config/mini_textbased.yaml") + " (system, instance, observation, format_error)",
                             "hook": "src/mini_compress.py: Model.query() 직전 compress_old_observations"},
-        "configs": cfgs, "task_ids": task_ids,
+        "configs": cfgs, "config_paths": config_paths, "task_ids": task_ids,
         "data_source": tasks_doc.get("source"), "data_selection": tasks_doc.get("selection"),
         "data_sha256": hashlib.sha256(Path(args.tasks).read_bytes()).hexdigest(),
         "repeats_per_condition": {c: repeats for c in CONDITIONS},
@@ -328,7 +344,8 @@ def main():
                         continue
                     t = time.monotonic()
                     row = run_trial(task, cond, cfgs[cond], repeat, args.mode, out, args.run_id,
-                                    dataset_name=(tasks_doc.get("source") or {}).get("dataset"))
+                                    dataset_name=(tasks_doc.get("source") or {}).get("dataset"),
+                                    config_path=config_paths[cond])
                     stream.write(json.dumps(row, ensure_ascii=False) + "\n"); stream.flush()
                     e = row["evidence"]
                     print(f"[{repeat}/{repeats}] {task['task_id']:>12} {cond:>12} {row['status']:>8} "
