@@ -43,6 +43,18 @@ class ConfigDirTests(unittest.TestCase):
         self.assertEqual(run.config_label(EXPERIMENT / "configs" / "ctx16k", "intervention"),
                          "configs/ctx16k/intervention.json")
 
+    def test_ctx16k_t100_differs_from_ctx16k_only_in_turns_and_wall_clock(self):
+        old = run.load_configs(EXPERIMENT / "configs" / "ctx16k")
+        new = run.load_configs(EXPERIMENT / "configs" / "ctx16k-t100")
+        for c in run.CONDITIONS:
+            a, b = copy.deepcopy(old[c]), copy.deepcopy(new[c])
+            self.assertEqual(b["limits"]["max_turns"], 100)
+            self.assertEqual(b["limits"]["wall_clock_seconds"], 2400)
+            for x in (a, b):
+                for k in ("max_turns", "wall_clock_seconds", "note"):
+                    x["limits"].pop(k)
+            self.assertEqual(a, b)
+
     def test_mismatch_outside_compression_is_rejected(self):
         a = json.loads((run.DEFAULT_CONFIG_DIR / "baseline.json").read_text())
         b = json.loads((run.DEFAULT_CONFIG_DIR / "intervention.json").read_text())
