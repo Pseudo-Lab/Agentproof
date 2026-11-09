@@ -119,6 +119,24 @@ results/<stage>/<run-id>/
                      압축 통계와 litellm 응답(usage 포함). e01 키 아래에 채점 결과, 최종 저장소 스냅샷, seed.
 ```
 
+## 본 실험 분석 (모델 호출 없음)
+
+사전 고정 분석은 `src/analyze_main.py` 하나로 다시 계산한다. 표준 라이브러리만 쓰며, 결과는 카드의 결과 절과 같아야 한다.
+
+```sh
+# 32K·30턴 본 실험: 주 분석(5회 중 3회 이상)과 보조(3회 중 2회 이상)
+python3 experiments/E01-tool-output-compression/src/analyze_main.py \
+  experiments/E01-tool-output-compression/results/main/swe-main-001 --repeats 5 --solved-min 3
+python3 experiments/E01-tool-output-compression/src/analyze_main.py \
+  experiments/E01-tool-output-compression/results/main/swe-main-001 --repeats 3 --solved-min 2
+
+# 16K·턴 100 후속 조건(탐색적): 20과제 × 3회
+python3 experiments/E01-tool-output-compression/src/analyze_main.py \
+  experiments/E01-tool-output-compression/results/main/ctx16k-main-002 --repeats 3 --solved-min 2
+```
+
+`ctx16k-main-001`(16K·턴 50)은 1회차 도중 중단한 실행으로, 분석에 쓰지 않고 기록으로만 둔다.
+
 trial 한 줄의 `evidence` 에는 종료 사유(mini 의 exit_status: Submitted / LimitsExceeded / TimeExceeded / RepeatedFormatError / ContextOverflow), 턴 수, seed, 압축 작동 여부와 수치, 도구 출력 수, 반복 탐지, 채점 근거가 들어간다.
 
 ## 실행 순서와 재시도 정책
