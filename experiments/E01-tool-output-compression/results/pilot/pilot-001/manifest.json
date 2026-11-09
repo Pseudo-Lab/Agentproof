@@ -1,0 +1,194 @@
+{
+  "experiment_id": "E01-tool-output-compression",
+  "run_id": "pilot-001",
+  "stage": "pilot",
+  "execution_mode": "real",
+  "started_at_utc": "2026-10-26T08:44:19.447891+00:00",
+  "code_commit": "43089ed339d898a801e0de86015f5a19c1ae83f6",
+  "code_dirty": true,
+  "model": "qwen3.5:9b-q4_K_M",
+  "model_runtime": {
+    "provider": "ollama via litellm",
+    "litellm_model": "ollama_chat/qwen3.5:9b-q4_K_M",
+    "base_url_env": "OLLAMA_HOST",
+    "think": false,
+    "preserve_thinking": "n/a: previous assistant thinking is never forwarded (text mode, content only)"
+  },
+  "agent_framework": {
+    "name": "mini-swe-agent",
+    "version": "2.4.6",
+    "agent": "DefaultAgent",
+    "environment": "LocalEnvironment",
+    "templates": "minisweagent/config/mini_textbased.yaml (system, instance, observation, format_error)",
+    "hook": "src/mini_compress.py: Model.query() 직전 compress_old_observations"
+  },
+  "configs": {
+    "baseline": {
+      "condition": "baseline",
+      "model": {
+        "litellm_provider": "ollama_chat",
+        "name": "qwen3.5:9b-q4_K_M",
+        "digest": "56671c2ab938",
+        "think": false,
+        "options": {
+          "temperature": 0,
+          "top_p": 1,
+          "num_ctx": 32768,
+          "num_predict": 4096,
+          "keep_alive": "30m"
+        }
+      },
+      "repeats": 5,
+      "seeds": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "limits": {
+        "max_turns": 30,
+        "wall_clock_seconds": 1200,
+        "context_tokens": 32768,
+        "command_timeout_seconds": 60,
+        "max_observation_chars": 10000,
+        "max_consecutive_format_errors": 3,
+        "model_timeout_seconds": 600,
+        "note": "max_observation_chars 는 mini 기본 observation_template 의 10,000자 head/tail 절단과 같은 값"
+      },
+      "sandbox": {
+        "kind": "local",
+        "image": null,
+        "note": "파일럿은 과제별 임시 디렉터리에서 bash 실행(네트워크 차단 없음). 본 실험은 kind=docker, image 지정, --network none"
+      },
+      "budget": {
+        "machine_hours_cap": 48,
+        "api_cost_usd": 0,
+        "reduction_order": [
+          "repeats 5->3",
+          "tasks 30->20",
+          "wall_clock 1200->900"
+        ]
+      },
+      "compression": {
+        "enabled": false
+      },
+      "agent_framework": {
+        "name": "mini-swe-agent",
+        "version": "2.4.6",
+        "mode": "textbased",
+        "templates": "minisweagent/config/mini_textbased.yaml",
+        "note": "시스템·과제·관찰·형식오류 템플릿 모두 mini 기본값. 두 조건 동일"
+      }
+    },
+    "intervention": {
+      "condition": "intervention",
+      "model": {
+        "litellm_provider": "ollama_chat",
+        "name": "qwen3.5:9b-q4_K_M",
+        "digest": "56671c2ab938",
+        "think": false,
+        "options": {
+          "temperature": 0,
+          "top_p": 1,
+          "num_ctx": 32768,
+          "num_predict": 4096,
+          "keep_alive": "30m"
+        }
+      },
+      "repeats": 5,
+      "seeds": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "limits": {
+        "max_turns": 30,
+        "wall_clock_seconds": 1200,
+        "context_tokens": 32768,
+        "command_timeout_seconds": 60,
+        "max_observation_chars": 10000,
+        "max_consecutive_format_errors": 3,
+        "model_timeout_seconds": 600,
+        "note": "max_observation_chars 는 mini 기본 observation_template 의 10,000자 head/tail 절단과 같은 값"
+      },
+      "sandbox": {
+        "kind": "local",
+        "image": null,
+        "note": "파일럿은 과제별 임시 디렉터리에서 bash 실행(네트워크 차단 없음). 본 실험은 kind=docker, image 지정, --network none"
+      },
+      "budget": {
+        "machine_hours_cap": 48,
+        "api_cost_usd": 0,
+        "reduction_order": [
+          "repeats 5->3",
+          "tasks 30->20",
+          "wall_clock 1200->900"
+        ]
+      },
+      "compression": {
+        "enabled": true,
+        "keep_last_observations": 5,
+        "placeholder": "(출력 {chars}자 생략됨)",
+        "applies_to": "messages whose extra.tool_output is true, older than the last 5",
+        "never_touches": [
+          "system prompt",
+          "task prompt",
+          "assistant messages"
+        ]
+      },
+      "agent_framework": {
+        "name": "mini-swe-agent",
+        "version": "2.4.6",
+        "mode": "textbased",
+        "templates": "minisweagent/config/mini_textbased.yaml",
+        "note": "시스템·과제·관찰·형식오류 템플릿 모두 mini 기본값. 두 조건 동일"
+      }
+    }
+  },
+  "task_ids": [
+    "Python-2",
+    "Python-22",
+    "Python-29",
+    "Python-34",
+    "Python-58",
+    "Python-102",
+    "Python-103",
+    "Python-124",
+    "Python-138",
+    "Python-148"
+  ],
+  "data_source": {
+    "dataset": "bigcode/humanevalpack",
+    "file": "python/test-00000-of-00001.parquet",
+    "commit": "9a41762f73a8cb23bb5811b73d5aab164efcf378",
+    "sha256": "ed5f15d789156e21222bfcd556c425a39042355c84ae1e8b058abd6a3d7f8075",
+    "license": "MIT",
+    "total_rows": 164
+  },
+  "data_selection": {
+    "split": "pilot",
+    "n": 10,
+    "seed": 20261026,
+    "excluded_source_ids": [],
+    "method": "random.Random(seed).sample over rows sorted by task number, after exclusion"
+  },
+  "data_sha256": "78b68d1deab6d9c7c1bc1d4200b88f599640b4c0d368d4ff8b803c43c83c7cf4",
+  "repeats_per_condition": {
+    "baseline": 5,
+    "intervention": 5
+  },
+  "execution_order": "repeat -> task -> (baseline, intervention) interleaved; infra errors are logged as status=error, re-runs use --resume after deleting the row and are listed in CARD",
+  "seed_policy": "seed per repeat from configs.seeds[:5]; passed to Ollama seed option, temperature 0",
+  "cost_basis": "local inference; cost_usd null; input/output tokens from litellm usage (Ollama prompt_eval_count/eval_count)",
+  "latency_basis": "wall clock per trial including model, command execution and grading",
+  "environment": {
+    "python": "3.13.9 | packaged by Anaconda, Inc. | (main, Oct 21 2025, 19:11:29) [Clang 20.1.8 ]",
+    "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "dependencies": "mini-swe-agent==2.4.6 (litellm, pyyaml); grader uses standard library"
+  },
+  "warning": null
+}
