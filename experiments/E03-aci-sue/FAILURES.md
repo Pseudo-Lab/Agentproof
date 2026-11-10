@@ -23,5 +23,7 @@ Qwen의 Matplotlib/Seaborn에서는 도구 설명의 Python 재현 안내와 pyt
 이 불일치가 조기 제출에 영향을 주었는지는 후속 비교로 확인한다.
 API가 반환한 `submit`과 실행된 동작은 일치했다. 모델 선택과 서버 parser의 기여를 구분할 raw 생성 토큰은 저장하지 않았다.
 
-[사례별 근거](results/failure-evidence.json)에 trajectory 경로, 마지막 응답 인덱스·tool call,
-공식 오류 발췌·원본 로그 SHA-256을 담았다. 개별 공식 report와 제출 patch는 각 run의 evidence에 있다.
+로컬 보관본의 `results/failure-evidence.json`에 trajectory 경로, 마지막 응답 인덱스·tool call,
+공식 오류 발췌·원본 로그 SHA-256을 담았다. 개별 공식 report와 제출 patch도 보관했다.
+`results/` 전체는 PR에서 제외했으며, 이 문서에는 초기 20건의 실패 요약만 남겼다.
+현재 배포하는 Verified 고정100의 실패 분석으로 해석하지 않는다.

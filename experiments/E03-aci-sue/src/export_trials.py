@@ -1,7 +1,9 @@
-"""Convert published mini trajectories and official SWE-bench reports offline.
+"""Convert locally restored mini trajectories and official SWE-bench reports offline.
 
 No model, Docker, network, or new grader. Agentproof's unchanged summarizer
 validates the grid. --write creates the two derived files; default checks them.
+Historical results, including provenance, are archived locally and excluded
+from Git. Restore the matching results, dataset and source archive before use.
 """
 import argparse
 import hashlib

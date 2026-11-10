@@ -2,6 +2,11 @@
 
 **mini-swe-agent 기반으로 검색(S)·읽기(U)·편집(E) 도구의 해결률과 효율을 비교한다.**
 
+현재 배포 데이터는 [SWE-bench Verified 고정100](src/minisweagent/config/datasets/swe-verified-heldout100-20261031.json)이다.
+아래 5·10·50문제 수치는 당시 데이터로 수행한 과거 실험이며 고정100 결과로 바꾸어 해석하지 않는다.
+전체 `results/`와 당시 데이터는 로컬에 보관하고, PR에는 이 카드의 결과 요약과 코드·설정을 남겼다.
+이 문서의 `results/...` 표기는 로컬 보관본 기준 경로다.
+
 - 담당자: [muuty](https://github.com/muuty)
 - 단계: 실제 모델 파일럿. 실행 2026-10-26 UTC, 제출 정리 2026-10-27.
 - 질문: 기존 Search / Understanding / Editing 도구를 제공하고 사용 경로를 제한하면 해결률과 시간·토큰 사용이 어떻게 달라지는가?
@@ -69,12 +74,12 @@ S/U/E 인터페이스는 두 층으로 나뉜다. **도구 래퍼**는 컨테이
 
 ACI 에이전트 엔진(`aci_staged.py`)과 실행 config(`aci-staged.yaml`)는 공개 스냅샷이 baseline 기준으로
 체크아웃되어 처음 번들에서 빠졌다가, 실험에 사용한 staged run의 소스 감사본(before.tar.gz)에서
-sha256이 일치하는 바이트 그대로 복원했다(`results/provenance/source-code.json`에 해시 기록).
+sha256이 일치하는 바이트 그대로 복원했다(로컬 `results/provenance/source-code.json`에 해시 기록).
 
 mini 2.4.6, 공식 SWE-bench 4.1.0과 기존 도구를 사용했다. [원본 commit](configs/upstreams.lock.json),
 [mini 소스](src/minisweagent/), [도구 schema](configs/intervention-tools.json)를 포함한다.
 
-- 데이터: SWE-bench Lite test revision `6ec7bb89b9342f664a54a6e0a6ea6501d3437cc2`의 [기존 점검용 5문제](data/tasks.json). 이 파일럿은 기존 노출된 Lite 문제를 재사용했으므로, SWE-bench Verified 기준으로 보고되는 mini-swe-agent 공식 수치와 직접 비교하지 않는다(후속 설계에서 Verified Mini로 전환).
+- 데이터: SWE-bench Lite test revision `6ec7bb89b9342f664a54a6e0a6ea6501d3437cc2`의 기존 점검용 5문제(로컬 보관본). 이 파일럿은 기존 노출된 Lite 문제를 재사용했으므로, SWE-bench Verified 기준으로 보고되는 mini-swe-agent 공식 수치와 직접 비교하지 않는다.
 - 표본: 모델별 5문제 × 2조건 × 1회 = 총 20건. 앞선 실험에서 사용한 문제다.
 - 예산: 문제당 600초, 요청·step 상한 없음. 준비·인덱싱·공식 채점은 별도. 종료 후 패치 회수 최대 30초.
 - 모델: Gemma-4-31B-it / Qwen3.5-27B, seed 42, thinking 활성화, 모델별 1 worker. revision과 sampling은 manifest에 저장했다.
@@ -92,12 +97,15 @@ mini 2.4.6, 공식 SWE-bench 4.1.0과 기존 도구를 사용했다. [원본 com
 
 - Gemma는 같은 3문제를 해결했다. Qwen은 빈 패치 1건과 재현 파일만 제출한 2건에서 일찍 종료했다.
 - S+U+E 10건 모두 S/U를 사용했고, 제품 코드 수정은 7건이었다. [실패 9건 분석](FAILURES.md)
-- Agent timeout·공식 채점 실행 오류는 0건. 도구 오류는 trajectory에 보존했다.
+- Agent timeout·공식 채점 실행 오류는 0건. 도구 오류는 로컬에 보관한 trajectory에 보존했다.
 - 시간은 native 정수 초, 토큰은 저장된 API usage 합이다. GPU 비용은 미측정으로 `null` 처리했다.
-- [Gemma 기록](results/pilot/E03-gemma31b-historical-pilot5/manifest.json), [Qwen 기록](results/pilot/E03-qwen27b-historical-pilot5/manifest.json): 각각 manifest/trials/summary와 원본 형식 evidence를 포함한다.
+- Gemma·Qwen의 manifest/trials/summary, 제출 patch와 공식 채점은 로컬 `results/pilot/`에 보관한다. 결과 파일과 해시는 PR에서 제외했다.
 - 채점 확인: 성공한 Xarray, 실패한 Astropy, 빈 패치 Django를 점검했다. 전체 20건의 patch·점수·usage를 코드로 대조했다. 오류/timeout 매핑은 합성 검사 6건으로 확인했다.
 
-## 후속 설계
+## 당시 후속 설계와 개발 실험
+
+아래는 Lite 파일럿 이후 Verified Mini로 확장했던 설계와 관측 결과다.
+현재 실행 입력은 위의 고정100으로 통일했으며 과거 문제 집합은 로컬 보관본에서만 사용한다.
 
 이번 파일럿은 인터페이스를 묶음으로 바꿨으므로 개별 S·U·E의 효과를 분리하지 못한다.
 후속에서는 공통 프롬프트·실행·검증·제출 정책을 고정하고, 기준 조건에서 S·U·E 중
@@ -208,7 +216,7 @@ S'는 sphinx-7757을 새로 해결하고, baseline이 풀던 django-11790·sphin
   행동이며, 프롬프트·정책으로 유도할 다음 과제다.
 - 10문제×1회는 ±2 이동이 노이즈인지 실제 효과인지 구분하기에 표본이 너무 작다. 조건당 5회 반복과
   전체 Verified Mini 50문제 평가가 필요하다는 점이 이 dev 결과로 재확인된다.
-- 상세: `results/dev/comparison-S-vs-baseline.json`, 개선 dispatch는 `results/dev/search_dispatch.improved.py`(파일럿 원본은 불변).
+- 상세는 로컬 `results/dev/comparison-S-vs-baseline.json`, 개선 dispatch는 [tools/search-improved/search_dispatch.py](tools/search-improved/search_dispatch.py)에 있다(파일럿 원본은 불변).
 
 ### Verified Mini 50: localization-only 평가
 
@@ -242,10 +250,10 @@ B 대비 문제별 paired 비교(두 조건 모두 찾은 문제, 양측 sign te
 - 한계: 조건당 1회(temperature 1). 동시 실행이라 응답 지연이 dev10보다 크며, steps 지표는 지연과 무관하지만
   TimeExceeded 판정은 영향을 받는다. 조기 종료라 coverage는 첫 적중만 반영하므로 보고하지 않는다.
   dev10은 S' 설계에 쓰여 in-sample이다.
-- 데이터: [subset 메타](src/minisweagent/config/datasets/swe-verified-mini-50-20261028.json)(HF revision
-  `b316c34`), 결과 `results/dev/vmini50-localization-metrics.json`, 실행 명령 `results/dev/vmini50-locate-commands.txt`.
+- 당시 데이터: Verified Mini 50(HF revision `b316c34`). subset 메타와
+  `results/dev/vmini50-localization-metrics.json`, `results/dev/vmini50-locate-commands.txt`는 로컬에 보관한다.
 
-데이터셋은 이번 파일럿의 SWE-bench Lite에서 **SWE-bench Verified Mini로 전환한다.**
+당시에는 파일럿의 SWE-bench Lite에서 **SWE-bench Verified Mini로 전환하는 계획**을 세웠다.
 mini-swe-agent 공식 결과가 SWE-bench Verified 기준으로 보고되므로, 같은 계열 벤치마크를 써야
 공식 수치와 비교할 수 있다. Verified Mini는 원본 SWE-bench Verified에서 무작위로 고른 50문제
 subset으로, 평가 비용이 낮아 조건당 반복 실행에 적합하다. 노출 이력을 확인한 뒤 개발 10→20문제로
