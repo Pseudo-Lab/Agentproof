@@ -63,3 +63,37 @@ python3 ../../harness/summarize.py results/<stage>/<run-id>
 - 정답 파일은 디스크에 쓰지 않고 채점 시 seed로 다시 계산한다. 에이전트 도구 인자에 레포 경로가 나오면 `leak_flags`로 표시한다.
 - graph·csv 스킬 발췌 출처: <https://github.com/benchflow-ai/skillsbench/tree/f860ecf02ef53412a030f8661c83d644b739ff01/tasks> (Apache-2.0).
   csv 발췌는 pandas/numpy 의존만 표준 라이브러리로 바꿨고, 원문의 "이 데이터셋에서 쉼표는 소수점" 주석은 그대로 뒀다.
+
+## 기술보고서 보강 실험 v5
+
+v3/v4 결과에서 제기된 요구사항 명시·추가 턴·실패 분류 문제를 분리하기 위한 **새로운 통제 실험**이다. 최종 7과제 확증 본실험과 다르다.
+
+- [실행 전 프로토콜](analysis/V5_PROTOCOL.md)
+- [독립 설계 검토](analysis/DESIGN_REVIEW.md)
+- [기술보고서 연구 파트](../../report/e02-skill-precheck.md)
+- `src/agent_v5.py`: 공통 권한 지시, B/N/C2/V/P, 첫 완료 snapshot, 원자적 비용 예약
+- `src/run_v5.py`: 서로 다른 입력 5개, L3 150회 + L2 기준선 30회, trial별 원자료
+- `src/analyze_v5.py`: 과제별 성공 수, 과제 단위 차이, E0/E1 상호작용, 산출물 전이
+
+아래는 **API 호출 없는** 검사·집계 명령이다. 실제 실행은 별도의 명시적인 예산 승인 안에서만 한다.
+
+```sh
+# 레포 루트
+python3 -m unittest discover -s experiments/E02-skill-precheck/src -p 'test_*.py'
+python3 -m unittest discover -s harness
+
+# 실험 폴더
+cd experiments/E02-skill-precheck
+python3 src/analyze_v5.py results/v5/report-v5-001
+python3 src/sensitivity_v5.py  # 사후 보충 분석: 입력 쌍·과제 제외·사후 행동 전수
+python3 src/build_chapter.py
+
+# 모의 배관 점검: 실제 모델 성능으로 사용 금지, 새 run-id 필요
+python3 src/run_v5.py --run-id mock-v5-YOUR-UNIQUE-ID --mock
+```
+
+실제 v5의 설정은 `configs/plan_v5_report.json`이다. 실행기는 기존 세션의 선행 실행과 이미 실행한 실제 v5까지 비용을 합산한다. 새로운 run-id를 사용해도 예산이 새로 생기지 않는다. 비용을 확정할 수 없는 API 실패는 요청 상한으로 보수적으로 계상한다.
+
+`results/v5/<run-id>/traces/<trial>/before_post/`와 `output/`에는 각각 첫 완료 시점과 마지막 산출물이 있다. `skill_consistent_mismatch`는 E1에는 틀리지만 **E0 전체 채점 기준을 통과하는 출력**을 뜻한다. 스킬을 따른 심리적 이유나 인과적 앵커링의 판정은 아니다. 혼합 오류는 `other_error`로 남긴다.
+
+이전 추가 SkillsBench 실행 `w6-sb-20261109b`는 컨테이너 도구 timeout 후 자식 프로세스가 남는 문제를 관찰해 33/72회에서 중단했다. 진행 중 trial의 미기록 청구 상한 $0.63은 manifest에 별도 남겼다. 해당 실행을 완전한 재현 결과로 사용하지 않는다. 기존 v4 timeout 실행기를 수정 완료한 것은 아니다.

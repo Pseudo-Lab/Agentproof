@@ -270,14 +270,14 @@ def solve(task, env, workspace, mode):
     ws = Path(workspace)
     use = env if mode == 'oracle' else 'E0'
     if task == 'graph':
-        nodes = list(csv.DictReader((ws / 'input/nodes.csv').open(newline='')))
-        edges = list(csv.DictReader((ws / 'input/edges.csv').open(newline='')))
+        nodes = list(csv.DictReader(io.StringIO((ws / 'input/nodes.csv').read_text())))
+        edges = list(csv.DictReader(io.StringIO((ws / 'input/edges.csv').read_text())))
         src, dst = _graph_keys(use)
         data = {'nodes': [{'id': n['id'], 'text': n['text'], 'speaker': n['speaker'], 'type': n['type']} for n in nodes],
                 'edges': [{src: e['source'], dst: e['target'], 'text': e['text']} for e in edges]}
         (ws / OUTPUT_FILE[task]).write_text(json.dumps(data, indent=2))
     elif task == 'csv':
-        rows = list(csv.DictReader((ws / 'input/measurements.csv').open(newline='')))
+        rows = list(csv.DictReader(io.StringIO((ws / 'input/measurements.csv').read_text())))
         with (ws / OUTPUT_FILE[task]).open('w', newline='') as f:
             w = csv.writer(f)
             w.writerow(['id', 'value'])
@@ -290,7 +290,7 @@ def solve(task, env, workspace, mode):
     elif task == 'events':
         tz = timezone.utc if use == 'E0' else SEOUL
         count, total = defaultdict(int), defaultdict(int)
-        for r in csv.DictReader((ws / 'input/events.csv').open(newline='')):
+        for r in csv.DictReader(io.StringIO((ws / 'input/events.csv').read_text())):
             ts = datetime.strptime(r['ts_utc'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
             day = ts.astimezone(tz).strftime('%Y-%m-%d')
             count[day] += 1
