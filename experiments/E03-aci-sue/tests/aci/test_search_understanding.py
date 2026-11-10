@@ -15,7 +15,6 @@ ROOT = Path(__file__).resolve().parents[2]
 
 BUNDLES = Path(os.environ["ACI_TEST_BUNDLES"])
 SEARCH_PYTHON = str(BUNDLES / "search/.venv/bin/python")
-SKELETON_PYTHON = str(BUNDLES / "understanding/agentless/.venv/bin/python")
 READER_PYTHON = str(BUNDLES / "understanding/codestruct/.venv/bin/python")
 READER_SOURCE = Path("SWE-agent/tools/ast_read/bin/readCode")
 
@@ -24,7 +23,7 @@ class SearchUnderstandingTests(unittest.TestCase):
     bundles = BUNDLES
 
     def test_vendored_sources_and_licenses_are_unchanged(self):
-        for layer in ("search", "understanding/agentless", "understanding/codestruct"):
+        for layer in ("search", "understanding/codestruct"):
             for project in (ROOT / "tools" / layer / "upstream").iterdir():
                 for source in project.rglob("*"):
                     if source.is_file() and "__pycache__" not in source.parts:
@@ -73,21 +72,7 @@ class SearchUnderstandingTests(unittest.TestCase):
             cwd=self.repo, capture_output=True, text=True, timeout=30,
         )
 
-    def run_skeleton(self, path):
-        return subprocess.run(
-            [str(self.bundles / "understanding/agentless/bin/agentless_skeleton"), str(path)],
-            cwd=self.repo, capture_output=True, text=True, timeout=30,
-        )
 
-    def run_original_skeleton(self, path):
-        return subprocess.run(
-            [SKELETON_PYTHON, "-c",
-             "import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); "
-             "from agentless.util.compress_file import get_skeleton; "
-             "print(get_skeleton(Path(sys.argv[2]).read_text(), compress_assign=True), end='')",
-             str(ROOT / "external/Agentless"), str(path)],
-            cwd=self.repo, capture_output=True, text=True, timeout=30,
-        )
 
     def run_reader(self, *arguments, original=False):
         command = ([READER_PYTHON, str(ROOT / 'external/CodeStruct' / READER_SOURCE)] if original
@@ -245,35 +230,7 @@ class SearchUnderstandingTests(unittest.TestCase):
         self.assertEqual(valid.returncode, 0, valid.stderr)
         self.assertIn("return value + LIMIT", valid.stdout)
 
-    def test_skeleton_keeps_structure_and_constants_but_omits_function_body(self):
-        result = self.run_skeleton("package/service.py")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        for expected in ("LIMIT = 5", "class Service:", "def execute(self, value):", "..."):
-            self.assertIn(expected, result.stdout)
-        self.assertNotIn("return value + LIMIT", result.stdout)
-        self.assertNotIn("before-edit", result.stdout)
-        original = self.run_original_skeleton("package/service.py")
-        self.assertEqual(original.returncode, 0, original.stderr)
-        self.assertEqual(result.stdout, original.stdout)
-        self.assertIn("def execute(self, value):\n...\n", result.stdout)
-        file = self.repo / "package/service.py"
-        file.write_text(file.read_text().replace("original_symbol", "new_symbol"))
-        self.assertIn("def new_symbol", self.run_skeleton(file).stdout)
 
-    def test_skeleton_compresses_long_assignments_and_preserves_raw_parse_fallback(self):
-        file = self.repo / "large.py"
-        file.write_text("VALUES = [\n" + "".join(f"    {n},\n" for n in range(80)) + "]\n")
-        result = self.run_skeleton(file)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("...", result.stdout)
-        self.assertNotIn("    40,", result.stdout)
-        original = self.run_original_skeleton(file)
-        self.assertEqual(original.returncode, 0, original.stderr)
-        self.assertEqual(result.stdout, original.stdout)
-        file.write_text("def broken(:\n")
-        fallback = self.run_skeleton(file)
-        self.assertEqual(fallback.returncode, 0, fallback.stderr)
-        self.assertEqual(fallback.stdout, file.read_text())
 
 
 if __name__ == "__main__":

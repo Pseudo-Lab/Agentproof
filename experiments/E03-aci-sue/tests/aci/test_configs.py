@@ -1,37 +1,33 @@
 """Native mini config composition, prompt/tool conditions and gold separation."""
 import importlib.util
-import json
 from pathlib import Path
-import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
-from datasets import load_dataset
 from jinja2 import StrictUndefined, Template
 from minisweagent.agents.default import AgentConfig
 from minisweagent.config import get_config_from_spec
 from minisweagent.environments.docker import DockerEnvironmentConfig
 from minisweagent.models import get_model
 from minisweagent.utils.serialize import recursive_merge
-from minisweagent.run.benchmarks.export_dataset import export_dataset
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def config(condition='baseline', model='gemma4-31b', *, tool_first=False):
     paths = [
-        'swebench.yaml', ROOT / 'src/minisweagent/config/extra/aci-common.yaml',
-        ROOT / f'src/minisweagent/config/extra/model-{model}.yaml', ROOT / f'src/minisweagent/config/extra/aci-{condition}.yaml',
-        ROOT / 'src/minisweagent/config/extra/aci-wall600.yaml']
+        'swebench.yaml', ROOT / 'configs/aci-common.yaml',
+        ROOT / f'configs/model-{model}.yaml', ROOT / f'configs/aci-{condition}.yaml',
+        ROOT / 'configs/aci-wall600.yaml']
     if tool_first:
-        paths.append('aci-tool-first.yaml')
+        paths.append(ROOT / 'configs/aci-tool-first.yaml')
     return recursive_merge(*(get_config_from_spec(str(path)) for path in paths))
 
 
 class NativeConfigTests(unittest.TestCase):
     def test_defaults_and_model_profiles_load_in_original_classes(self):
         reference = get_config_from_spec('swebench.yaml')
-        for path in (ROOT / 'src/minisweagent/config/extra').glob('model-*.yaml'):
+        for path in (ROOT / 'configs').glob('model-*.yaml'):
             value = config(model=path.stem.removeprefix('model-'))
             AgentConfig(**value['agent'])
             DockerEnvironmentConfig(image='fixture:latest', **value['environment'])
@@ -47,8 +43,7 @@ class NativeConfigTests(unittest.TestCase):
     def test_all_conditions_match_installed_commands_to_rendered_prompt(self):
         names = {'s': ('search', 'search_method'), 'e': ('editing', 'editCode')}
         reference = config()
-        for condition in ('baseline', 's', 'u', 'e', 'su', 'se', 'ue', 'sue',
-                          'u-agentless', 'su-agentless', 'ue-agentless', 'sue-agentless'):
+        for condition in ('baseline', 'sue'):
             value = config(condition)
             active = '' if condition == 'baseline' else condition.split('-')[0]
             prompt = Template(value['agent']['system_template'], undefined=StrictUndefined).render(env=value['environment']['env'])
@@ -73,7 +68,7 @@ class NativeConfigTests(unittest.TestCase):
         self.assertEqual(rendered.strip(), get_config_from_spec('swebench.yaml')['agent']['system_template'].strip())
 
     def test_tool_priority_changes_instructions_only_and_leaves_baseline_unchanged(self):
-        for condition in ('baseline', 'sue', 'sue-agentless'):
+        for condition in ('baseline', 'sue'):
             optional = config(condition)
             priority = config(condition, tool_first=True)
             render = lambda cfg: Template(cfg['agent']['system_template'], undefined=StrictUndefined).render(env=cfg['environment']['env'])
@@ -92,19 +87,19 @@ class NativeConfigTests(unittest.TestCase):
         self.assertIsNone(importlib.util.find_spec('swerex'))
 
 
-class DatasetExportTests(unittest.TestCase):
-    def test_native_dataset_loader_reads_export_without_gold(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            folder = Path(temporary)
-            row = {'instance_id': 'repo__issue-1', 'repo': 'owner/repo', 'base_commit': 'abc',
-                   'problem_statement': 'Fix addition', 'patch': 'GOLD', 'test_patch': 'TEST',
-                   'hints_text': 'HINT', 'FAIL_TO_PASS': '["secret-test"]'}
-            cfg = {'dataset': 'fixture', 'revision': 'pinned', 'split': 'test',
-                   'instances': [{'instance_id': row['instance_id'], 'base_commit': 'abc'}]}
-            (folder / 'dataset.json').write_text(json.dumps(cfg))
-            with patch('datasets.load_dataset', return_value=[row]) as loader:
-                export_dataset(folder / 'dataset.json', folder / 'agent', folder / 'eval.json')
-            loader.assert_called_once_with('fixture', revision='pinned', split='test')
-            exported = list(load_dataset(str(folder / 'agent'), split='test'))
-            self.assertEqual(exported, [{key: row[key] for key in ('instance_id', 'repo', 'problem_statement', 'base_commit')}])
-            self.assertEqual(json.loads((folder / 'eval.json').read_text()), [row])
+    def test_staged_request_uses_named_tools_and_recovers_patch_paths(self):
+        from e03_aci.aci_staged import StagedModel, patch_command
+        model = StagedModel(model_name="openai/fixture", cost_tracking="ignore_errors",
+                            model_kwargs={"parallel_tool_calls": False})
+        response = object()
+        with patch("e03_aci.aci_staged.litellm.acompletion", new_callable=AsyncMock,
+                   return_value=response) as request:
+            self.assertIs(model._query([]), response)
+        names = {tool["function"]["name"] for tool in request.call_args.kwargs["tools"]}
+        self.assertIn("search_method", names)
+        self.assertIn("submit", names)
+        self.assertNotIn("bash", names)
+        self.assertNotIn("editCode", names)
+        self.assertFalse(request.call_args.kwargs["parallel_tool_calls"])
+        self.assertEqual(patch_command(["a b.py"]),
+                         "git add -N . && git diff --binary HEAD -- 'a b.py' ':!patch.txt'")

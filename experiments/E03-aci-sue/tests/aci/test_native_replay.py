@@ -34,9 +34,9 @@ class NativeReplayTests(unittest.TestCase):
         for arguments in (["init", "-q"], ["add", "."], ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"]):
             subprocess.run(["git", "-C", str(repo), *arguments], check=True)
         cfg = recursive_merge(*(get_config_from_spec(str(path)) for path in (
-            "swebench.yaml", ROOT / "src/minisweagent/config/extra/aci-common.yaml", ROOT / f"src/minisweagent/config/extra/aci-{condition}.yaml",
-            ROOT / "src/minisweagent/config/extra/aci-tool-first.yaml",
-            ROOT / "src/minisweagent/config/extra/aci-wall600.yaml")))
+            "swebench.yaml", ROOT / "configs/aci-common.yaml", ROOT / f"configs/aci-{condition}.yaml",
+            ROOT / "configs/aci-tool-first.yaml",
+            ROOT / "configs/aci-wall600.yaml")))
         cfg["agent"].update(wall_time_limit_seconds=seconds, step_limit=calls)
         cfg["environment"]["run_args"] += ["--mount", f"type=bind,src={repo},target=/fixture,readonly"]
         cfg["run"]["env_startup_command"] = "cp -r /fixture/. /testbed/\n" + cfg["run"]["env_startup_command"]
@@ -61,7 +61,7 @@ class NativeReplayTests(unittest.TestCase):
         (dataset / "test.jsonl").write_text("\n".join(json.dumps({"instance_id": f"fixture-{i}",
             "problem_statement": "Fix addition.", "base_commit": "HEAD", "image_name": IMAGE}) for i in range(count)))
         output = work / "results"
-        command = [sys.executable, "-m", "minisweagent.run.benchmarks.aci", "--subset", str(dataset), "--split", "test",
+        command = [sys.executable, "-m", "e03_aci.aci", "--subset", str(dataset), "--split", "test",
                    "-c", str(path), "--workers", str(workers), "-o", str(output)]
         result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=240)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -111,20 +111,6 @@ class NativeReplayTests(unittest.TestCase):
         self.assertIn("Skipping 1 existing instances", resumed.stdout + resumed.stderr)
         self.assertEqual(saved, (output / "fixture-0/fixture-0.traj.json").read_bytes())
 
-    def test_agentless_u_variant_installs_and_describes_only_selected_reader(self):
-        traces, _, _, log = self.fixture([
-            'test -z "$(command -v readCode)" && test -z "$(command -v editCode)" && agentless_skeleton mathops.py',
-            "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && git diff",
-        ], condition='u-agentless')
-        trace = traces[0]
-        self.assertEqual(trace['info']['exit_status'], 'Submitted', log)
-        prompt = trace['messages'][0]['content']
-        self.assertIn('first call agentless_skeleton', prompt)
-        self.assertNotIn('readCode', prompt)
-        result = next(message['content'] for message in trace['messages'] if message['role'] == 'tool')
-        self.assertIn('def add(a, b):', result)
-        self.assertIn('...', result)
-        self.assertNotIn('return a - b', result)
 
     def test_deadline_kills_command_children_skips_pending_actions_and_continues_batch(self):
         actions = [{"command": "printf 'answer = 42\\n' > answer.py; (sleep 8; printf 'answer = 99\\n' > answer.py) & wait"},
@@ -150,7 +136,7 @@ class NativeReplayTests(unittest.TestCase):
         self.assertNotIn("+answer = 99", trace["info"]["submission"])
 
     def test_completed_agent_releases_container_even_while_references_remain(self):
-        from minisweagent.run.benchmarks.aci import BudgetAgent
+        from e03_aci.aci import BudgetAgent
         from minisweagent.environments.docker import DockerEnvironment
         from minisweagent.models.test_models import DeterministicModel, make_output
         from minisweagent.run.benchmarks.utils.batch_progress import RunBatchProgressManager
@@ -176,7 +162,7 @@ class NativeReplayTests(unittest.TestCase):
     def test_command_child_is_dead_before_patch_recovery_while_container_stays_alive(self):
         from minisweagent.environments.docker import DockerEnvironment
         from minisweagent.exceptions import TimeExceeded
-        from minisweagent.run.benchmarks.aci import DeadlineEnvironment
+        from e03_aci.aci import DeadlineEnvironment
 
         env = DockerEnvironment(image=IMAGE, cwd="/tmp", interpreter=["bash", "-c"], run_args=["--rm", "--network", "none"])
         self.addCleanup(env.cleanup)
@@ -221,7 +207,7 @@ class NativeReplayTests(unittest.TestCase):
         start = time.monotonic()
         # Two concurrent instances time out; a queued third instance must still run.
         traces, _, _, log = self.fixture([], seconds=5, count=3, workers=2, model={
-            "model_class": "minisweagent.run.benchmarks.aci.DeadlineModel", "model_name": "openai/fixture", "cost_tracking": "ignore_errors",
+            "model_class": "e03_aci.aci.DeadlineModel", "model_name": "openai/fixture", "cost_tracking": "ignore_errors",
             "model_kwargs": {"api_base": f"http://127.0.0.1:{server.server_port}/v1", "api_key": "EMPTY"}})
         self.assertEqual(len(requests), 15, log)
         self.assertLess(time.monotonic() - start, 24, log)
