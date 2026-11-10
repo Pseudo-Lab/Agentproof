@@ -73,43 +73,6 @@ class NativeReplayTests(unittest.TestCase):
             self.assertEqual(predictions[f"fixture-{i}"]["model_patch"], trace["info"]["submission"])
         return traces, command, output, result.stdout + result.stderr
 
-    def test_sue_heredocs_index_refresh_submission_and_resume(self):
-        commands = [
-            'test -n "$(find /root/aci-tools/search/.cache -name output.pkl -print -quit)" && echo INDEX_PREPARED',
-            "cat <<'EOF' > /tmp/aci-body.txt\n\tTAB_PRESERVED\nSOUNIQUEEOF\nEOF\npython -c \"from pathlib import Path; assert Path('/tmp/aci-body.txt').read_text() == '\\tTAB_PRESERVED\\nSOUNIQUEEOF\\n'; print('HEREDOC_OK')\"",
-            "search_method add",
-            "readCode mathops.py --selector add",
-            "editCode mathops.py replace_node add --replacement " + shlex.quote("def add(a, b):\n    return a + b"),
-            "search_method add",
-            "python -m pytest -q test_mathops.py",
-            "create_file /tmp/aci-tool-test/new.txt before && str_replace /tmp/aci-tool-test/new.txt before after && cat /tmp/aci-tool-test/new.txt",
-            "git diff -- mathops.py > patch.txt",
-            "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt",
-        ]
-        traces, command, output, log = self.fixture(commands, condition="sue")
-        trace = traces[0]
-        self.assertEqual(trace["info"]["exit_status"], "Submitted", log)
-        self.assertEqual(trace["info"]["model_stats"]["api_calls"], len(commands))
-        self.assertIn("+    return a + b", trace["info"]["submission"])
-        self.assertEqual(trace["info"]["submission"].count("diff --git"), 1)
-        results = [message["content"] for message in trace["messages"] if message["role"] == "tool"]
-        self.assertIn("INDEX_PREPARED", results[0])
-        self.assertIn("HEREDOC_OK", results[1])
-        self.assertIn("return a - b", results[2])
-        self.assertIn("<file>mathops.py</file>", results[2])
-        self.assertIn("def add(a, b):", results[3])
-        self.assertIn("return a - b", results[3])
-        self.assertNotIn("SENTINEL", results[3])
-        self.assertIn("return a + b", results[5])
-        self.assertIn("1 passed", results[6])
-        self.assertIn("after", results[7])
-        self.assertIn("first call readCode", trace['messages'][0]['content'])
-        self.assertNotIn("agentless_skeleton", trace['messages'][0]['content'])
-        saved = (output / "fixture-0/fixture-0.traj.json").read_bytes()
-        resumed = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=45)
-        self.assertEqual(resumed.returncode, 0, resumed.stdout + resumed.stderr)
-        self.assertIn("Skipping 1 existing instances", resumed.stdout + resumed.stderr)
-        self.assertEqual(saved, (output / "fixture-0/fixture-0.traj.json").read_bytes())
 
 
     def test_deadline_kills_command_children_skips_pending_actions_and_continues_batch(self):

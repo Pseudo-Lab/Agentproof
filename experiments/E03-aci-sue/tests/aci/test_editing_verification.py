@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import shlex
 from pathlib import Path
 import subprocess
 import tempfile
@@ -10,7 +11,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 EDIT_BUNDLE = Path(os.environ["ACI_TEST_BUNDLES"]) / "editing"
 UPSTREAM_EDITOR = ROOT / "external/CodeStruct/SWE-agent/tools/ast_edit"
-PATCH_DIR = ROOT / "tools/editing/patches"
+PATCH_DIR = ROOT / "tools/codestruct/editing/patches"
 
 
 def sha256(path):
@@ -48,23 +49,46 @@ class CodeStructIntegrationTests(unittest.TestCase):
         self.assertIn("syntax errors", result.stdout)
         self.assertEqual(self.target.read_text(), self.original)
 
+    def test_missing_selector_preserves_native_reader_context_for_every_operation(self):
+        for operation in ('delete_node', 'replace_node', 'insert_node'):
+            with self.subTest(operation=operation):
+                args = [str(self.target), operation, 'nonexistent']
+                if operation != 'delete_node':
+                    args += ['--replacement', 'def added():\n    return 2']
+                original = subprocess.run([str(EDIT_BUNDLE / '.venv/bin/python'),
+                    str(UPSTREAM_EDITOR / 'bin/editCode'), *args], capture_output=True, text=True, timeout=30)
+                actual = subprocess.run([str(EDIT_BUNDLE / 'bin/editCode'), *args],
+                    capture_output=True, text=True, timeout=30)
+                self.assertEqual((actual.returncode, actual.stdout, actual.stderr),
+                                 (original.returncode, original.stdout, original.stderr))
+                self.assertIn('File structure (from readCode)', actual.stdout)
+                self.assertIn('return 1', actual.stdout)
+                self.assertEqual(self.target.read_text(), self.original)
+
     def test_runtime_is_exactly_pinned_source_plus_recorded_patch(self):
         manifest = json.loads((PATCH_DIR / "manifest.json").read_text())
         for entry in manifest["patches"]:
             self.assertEqual(sha256(PATCH_DIR / entry["patch"]), entry["patch_sha256"])
             self.assertEqual(sha256(UPSTREAM_EDITOR / entry["target"]), entry["before_sha256"])
-            self.assertEqual(sha256(EDIT_BUNDLE / "upstream" / entry["target"]), entry["after_sha256"])
-        for source in (EDIT_BUNDLE / "upstream/lib").rglob("*"):
+            self.assertEqual(sha256(EDIT_BUNDLE / "upstream/ast_edit" / entry["target"]), entry["after_sha256"])
+        for source in (EDIT_BUNDLE / "upstream/ast_edit/lib").rglob("*"):
             if source.is_file() and "__pycache__" not in source.parts:
                 self.assertEqual(
                     source.read_bytes(),
-                    (UPSTREAM_EDITOR / "lib" / source.relative_to(EDIT_BUNDLE / "upstream/lib")).read_bytes(),
+                    (UPSTREAM_EDITOR / "lib" / source.relative_to(EDIT_BUNDLE / "upstream/ast_edit/lib")).read_bytes(),
                 )
         for command in ('str_replace', 'create_file'):
             original = ROOT / 'external/CodeStruct/SWE-agent/tools/str_replace/bin' / command
-            self.assertEqual((EDIT_BUNDLE / 'upstream/bin' / command).read_bytes(), original.read_bytes())
+            self.assertEqual((EDIT_BUNDLE / 'upstream/str_replace/bin' / command).read_bytes(), original.read_bytes())
+        reader = Path('upstream/CodeStruct/SWE-agent/tools/ast_read/bin/readCode')
+        self.assertEqual((EDIT_BUNDLE / 'upstream/ast_read/bin/readCode').read_bytes(),
+                         (EDIT_BUNDLE.parent / 'understanding/codestruct' / reader).read_bytes())
 
     def test_text_replacement_and_file_creation_match_original_clis(self):
+        from tests.aci.test_staged import named_model, response
+
+        model = named_model()
+        model.completed_stages.update({'S', 'U'})
         cases = [
             ('str_replace', 'example.py', self.original, ('return 1', 'return 42'),
              'def answer():\n    return 42\n'),
@@ -73,30 +97,40 @@ class CodeStructIntegrationTests(unittest.TestCase):
             ('str_replace', 'example.py', '# café雪😀\n' + self.original, ('# café雪😀\n',), self.original),
             ('create_file', 'nested/new.py', None, ('# café雪😀\nvalue = 42\n',), '# café雪😀\nvalue = 42\n'),
             ('create_file', 'example.py', self.original, ('replacement\n',), 'replacement\n'),
+            ('create_file', 'tests/test_new.py', None, ('def test_new(): pass\n',), 'def test_new(): pass\n'),
+            ('create_file', 'conftest.py', None, ('VALUE = 1\n',), 'VALUE = 1\n'),
         ]
         for command, name, initial, arguments, expected in cases:
             with self.subTest(command=command, arguments=arguments):
                 observations = []
-                for original in (True, False):
+                for variant in ('original', 'cli', 'named'):
                     with tempfile.TemporaryDirectory(prefix='aci-edit-cli-') as folder:
                         path = Path(folder) / name
                         if initial is not None:
                             path.parent.mkdir(parents=True, exist_ok=True)
                             path.write_text(initial)
-                        executable = ([str(EDIT_BUNDLE / '.venv/bin/python'),
-                                       str(ROOT / 'external/CodeStruct/SWE-agent/tools/str_replace/bin' / command)]
-                                      if original else [str(EDIT_BUNDLE / 'bin' / command)])
-                        result = subprocess.run([*executable, name, *arguments], cwd=folder,
+                        argv = ([str(EDIT_BUNDLE / '.venv/bin/python'),
+                                 str(ROOT / 'external/CodeStruct/SWE-agent/tools/str_replace/bin' / command)]
+                                if variant == 'original' else [str(EDIT_BUNDLE / 'bin' / command)])
+                        argv += [name, *arguments]
+                        if variant == 'named':
+                            values = dict(zip((arg['name'] for arg in model.definitions[command]['arguments']),
+                                              [name, *arguments]))
+                            action, = model._parse_actions(response(command, values | {'unused': 'ignored'}))
+                            argv = shlex.split(action['command'])[1:]
+                            argv[0] = str(EDIT_BUNDLE / 'bin' / command)
+                        result = subprocess.run(argv, cwd=folder,
                                                 capture_output=True, text=True, timeout=30)
                         self.assertEqual(result.returncode, 0, result.stderr)
                         self.assertEqual(path.read_text(), expected)
                         observations.append((result.returncode, result.stdout.replace(folder, '<fixture>'),
                                              result.stderr.replace(folder, '<fixture>'), path.read_bytes()))
                 self.assertEqual(observations[0], observations[1])
+                self.assertEqual(observations[0], observations[2])
 
 
 class CodeStructUtf8PatchTests(unittest.TestCase):
-    patched = EDIT_BUNDLE / "upstream/bin/editCode"
+    patched = EDIT_BUNDLE / "upstream/ast_edit/bin/editCode"
     python = EDIT_BUNDLE / ".venv/bin/python"
 
     def run_editor(self, code, arguments, *, patched=True):

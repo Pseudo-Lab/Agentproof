@@ -1,29 +1,6 @@
-# Compose with mini's swebench.yaml, then model/condition/policy/budget configs.
 agent:
   system_template: |
     You are a helpful assistant that can interact with a computer shell to solve programming tasks.
-    {% if env.ACI_TOOL_S == '1' %}
-    Repository search commands are installed on PATH. Call them through the bash tool.
-    {% if env.ACI_TOOL_POLICY == 'tool_first' %}
-    For locating Python symbols or source snippets, start with these search commands.
-    Use ordinary shell search when the target is unsupported, excluded, or not found.
-    {% endif %}
-    They reuse AutoCodeRover's Python AST search backend. Arguments are positional strings;
-    quote arguments containing spaces and use -- before arguments starting with a hyphen.
-    Use COMMAND --help for the original API documentation.
-    - search_class CLASS_NAME: class signature and method/property signatures.
-    - search_class_in_file CLASS_NAME FILE_NAME: full class code in one file.
-    - search_method METHOD_NAME: method/function code across the repository.
-    - search_method_in_file METHOD_NAME FILE_NAME: method/function code in one file.
-    - search_method_in_class METHOD_NAME CLASS_NAME: method code within a class.
-    - search_code CODE_STR: source snippet search; returns enclosing method or nearby code.
-    - search_code_in_file CODE_STR FILE_NAME: source snippet search within a file.
-    - get_code_around_line FILE_NAME LINE_NO WINDOW_SIZE: code around a 1-based line.
-    Example: search_method_in_file 'get_response' 'django/core/handlers/base.py'
-    The index is prepared before you start and refreshed after edits. Search covers indexed
-    Python source; likely test files and unparseable files are excluded by upstream.
-    Result paths are relative to the repository root.
-    {% endif %}
     {% if env.ACI_TOOL_U == '1' %}
     Code reading command: readCode PATH [--selector NAME] [--line-start N --line-end M].
     Call it through the bash tool. This is CodeStruct's reader with its documented UTF-8 fix.
@@ -72,16 +49,35 @@ environment:
     ACI_U_IMPLEMENTATION: codestruct
     ACI_TOOL_POLICY: optional
     ACI_TOOL_E: '0'
+    ACI_TESTS_FILES: '3'
+    ACI_TESTS_TIMEOUT: '180'
+    ACI_TESTS_CHARS: '1500'
 run:
   env_startup_command: |
     set -eu
     git reset --hard {{ base_commit }}
     git clean -fd
-    export ROOT="$PWD"
     mkdir -p /root/aci-tools
     for tool in /opt/aci-tools/*; do
       [ -d "$tool" ] || continue
       cp -a "$tool" /root/aci-tools/
-      source "/root/aci-tools/${tool##*/}/install.sh"
-      ln -s /root/aci-tools/"${tool##*/}"/bin/* /usr/local/bin/
+      uv venv --python 3.12 "/root/aci-tools/${tool##*/}/.venv"
+      uv pip install --python "/root/aci-tools/${tool##*/}/.venv/bin/python" -r "$tool/requirements.txt"
+      if [ -d "$tool/bin" ]; then ln -s /root/aci-tools/"${tool##*/}"/bin/* /usr/local/bin/; fi
+    done
+    # SWE-agent bundles (tools/sweagent-*): repeat SWE-agent's install step (sweagent/tools/tools.py
+    # _install_commands): chmod +x the upstream bins, then source each upstream install.sh in one
+    # shell, in the config's bundle order. Its pip lines are no-ops: the private venv has them.
+    for order in /root/aci-tools/*/upstream/ORDER; do
+      [ -f "$order" ] || continue
+      up="${order%/ORDER}"
+      chmod +x "$up"/*/bin/*
+      ( set +u
+        pip() { :; }
+        export PATH="${up%/upstream}/.venv/bin:$(printf '%s:' "$up"/*/bin)$PATH"
+        while read -r b; do
+          [ -f "$up/$b/install.sh" ] || continue
+          cd "$up/$b"
+          . "$up/$b/install.sh"
+        done < "$order" )
     done
