@@ -1,0 +1,61 @@
+#!/root/python3.11/bin/python3
+"""Safe file creation tool that never crashes the shell
+
+Always exits with code 0 to prevent shell crashes, even on errors.
+"""
+
+import sys
+import argparse
+from pathlib import Path
+
+def create_file(file_path: str, content: str = "") -> int:
+    """Create a file with content. Returns 0 on success, 1 on error."""
+    try:
+        path = Path(file_path)
+        
+        # Auto-convert relative to absolute
+        if not path.is_absolute():
+            path = path.resolve()
+        
+        # Create parent directories if needed
+        path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Write file
+        try:
+            path.write_text(content, encoding='utf-8')
+        except Exception as e:
+            print(f"Error: Could not write file: {e}")
+            return 1
+        
+        action = "Overwritten" if path.exists() else "Created"
+        print(f"Success: {action} {path}")
+        print(f"Content length: {len(content)} chars")
+        if len(content) > 0:
+            preview = content[:200].replace('\n', '\\n')
+            print(f"Preview: {preview}...")
+        return 0
+        
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Create a file with content (safe, never crashes shell)',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  create_file test.py "print('hello')"
+  create_file reproduce_bug.py "from module import func\nfunc()"
+        """
+    )
+    parser.add_argument('file_path', help='Path to file to create')
+    parser.add_argument('content', nargs='?', default='', help='File content')
+    
+    args = parser.parse_args()
+    
+    create_file(args.file_path, args.content)
+    sys.exit(0)
+
+if __name__ == '__main__':
+    main()
