@@ -1,4 +1,11 @@
-# E03 — mini-swe-agent 기반 S/U/E 파일럿
+# E03 — 코딩 에이전트 ACI 실험
+
+[Base와 SLACT의 BF16 100문제 비교](results/slact-bf16-original100/README.md)를 추가했다.
+동일한 100문제를 각 조건 1회 실행한 초기 기록에서 해결률은 **55% → 68%**,
+평균 입력 토큰은 **20.1% 감소**했다. 탐색 recall 감소와 도구 실패율 증가도 함께 보고한다.
+현재 지표를 적용한 결과 표, 문제별 요약과 출처는 위 문서에서 확인할 수 있다.
+
+## 초기 S/U/E 도구 교체 파일럿
 
 [mini-swe-agent 2.4.6](https://github.com/SWE-agent/mini-swe-agent/tree/04d809ceab9df28f9adaed044884180159172930)을 기반으로
 검색(S)·읽기(U)·편집(E) 도구가 해결률과 효율에 미치는 영향을 비교한다.
@@ -15,7 +22,7 @@ data/               문제와 공식 평가 입력
 results/            실행 기록·공식 점수·요약
 ```
 
-## 설치
+### 설치
 
 Linux, Docker, uv, Python 3.12와 모델을 수용하는 GPU가 필요하다.
 Agentproof 루트에서 시작한다.
@@ -30,7 +37,7 @@ mkdir -p .cache/aci-bin
 cp "$(command -v uv)" .cache/aci-bin/uv
 ```
 
-## 실행
+### 실행
 
 Gemma 가중치를 `models/gemma-4-31B-it`에 준비하고 서버를 실행한다.
 revision은 `842da3794eaa0b77d5f08bae87a17459d91ff475`이다.
@@ -56,7 +63,7 @@ Qwen은 `model-qwen35-27b.yaml`, `endpoint-gpu3.yaml`, `serve-qwen35-27b.yaml`, 
 가중치 경로는 `models/Qwen3.5-27B`, revision은 `fc05daec18b0a78c049392ed2e771dde82bdf654`이다.
 문제당 600초이며 매번 새 출력 경로를 사용한다.
 
-## 공식 평가
+### 공식 평가
 
 모든 제출 후 같은 실험 폴더에서 실행한다.
 
@@ -67,7 +74,7 @@ uv run --locked --extra research python -m swebench.harness.run_evaluation \
   --run_id e03-gemma-baseline-reproduction --max_workers 2 --timeout 900
 ```
 
-## 저장된 결과 확인
+### 저장된 결과 확인
 
 Agentproof 루트에서 실행한다. 로그는 일반 JSON/텍스트 파일이다.
 
