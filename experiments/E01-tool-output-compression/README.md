@@ -133,6 +133,24 @@ python3 experiments/E01-tool-output-compression/src/analyze_main.py \
 # 16K·턴 100 후속 조건(탐색적): 20과제 × 3회
 python3 experiments/E01-tool-output-compression/src/analyze_main.py \
   experiments/E01-tool-output-compression/results/main/ctx16k-main-002 --repeats 3 --solved-min 2
+
+# W8 결과표(반복 간 편차, pass^k, 성공 1건당 토큰·시간)
+python3 experiments/E01-tool-output-compression/src/w8_table.py \
+  experiments/E01-tool-output-compression/results/main/swe-main-001
+python3 experiments/E01-tool-output-compression/src/w8_table.py \
+  experiments/E01-tool-output-compression/results/main/ctx16k-main-002 \
+  experiments/E01-tool-output-compression/results/main/ctx16k-keep10-001
+```
+
+W8 ablation(압축 강도 keep 5 → 10, CARD.md "W8" 절) 실행 명령:
+
+```sh
+caffeinate -ims .venv/bin/python experiments/E01-tool-output-compression/src/run.py \
+  --run-id ctx16k-keep10-001 --mode real --stage main --repeats 3 \
+  --tasks experiments/E01-tool-output-compression/data/tasks_swebench_ctx16k.json \
+  --config-dir experiments/E01-tool-output-compression/configs/ctx16k-t100-keep10
+python3 experiments/E01-tool-output-compression/src/analyze_main.py \
+  experiments/E01-tool-output-compression/results/main/ctx16k-keep10-001 --repeats 3 --solved-min 2
 ```
 
 `ctx16k-main-001`(16K·턴 50)은 1회차 도중 중단한 실행으로, 분석에 쓰지 않고 기록으로만 둔다.
