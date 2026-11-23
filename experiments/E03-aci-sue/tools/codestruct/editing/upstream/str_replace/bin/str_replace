@@ -1,0 +1,83 @@
+#!/root/python3.11/bin/python3
+"""Simple string replacement tool that never crashes the shell
+
+Always exits with code 0 to prevent shell crashes, even on errors.
+"""
+
+import sys
+import argparse
+from pathlib import Path
+
+def str_replace(file_path: str, old_str: str, new_str: str = "") -> int:
+    """Replace old_str with new_str in file. Returns 0 on success, 1 on error."""
+    try:
+        path = Path(file_path)
+        
+        # Don't modify the path - use it as provided
+        # This allows relative paths to work correctly from the current working directory
+        
+        # Check file exists
+        if not path.exists():
+            print(f"Error: File not found: {path}")
+            return 1
+        
+        if path.is_dir():
+            print(f"Error: Path is a directory: {path}")
+            return 1
+        
+        # Read file
+        try:
+            content = path.read_text(encoding='utf-8')
+        except UnicodeDecodeError:
+            try:
+                content = path.read_text(encoding='latin-1')
+            except Exception as e:
+                print(f"Error: Could not read file: {e}")
+                return 1
+        
+        # Check if old_str exists
+        if old_str not in content:
+            print(f"Error: String not found in file")
+            print(f"Searched for: {old_str[:100]}...")
+            return 1
+        
+        # Check if old_str is unique
+        count = content.count(old_str)
+        if count > 1:
+            print(f"Error: String appears {count} times in file. Must be unique.")
+            lines = [i+1 for i, line in enumerate(content.split('\n')) if old_str in line]
+            print(f"Found on lines: {lines}")
+            return 1
+        
+        # Perform replacement
+        new_content = content.replace(old_str, new_str)
+        
+        # Write back
+        try:
+            path.write_text(new_content, encoding='utf-8')
+        except Exception as e:
+            print(f"Error: Could not write file: {e}")
+            return 1
+        
+        print(f"Success: Replaced text in {path}")
+        print(f"Old text ({len(old_str)} chars): {old_str[:50]}...")
+        print(f"New text ({len(new_str)} chars): {new_str[:50]}...")
+        return 0
+        
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
+
+def main():
+    parser = argparse.ArgumentParser(description='Replace string in file')
+    parser.add_argument('file_path', help='Path to file')
+    parser.add_argument('old_str', help='String to replace')
+    parser.add_argument('new_str', nargs='?', default='', help='Replacement string (default: empty)')
+    
+    args = parser.parse_args()
+    
+    str_replace(args.file_path, args.old_str, args.new_str)
+    sys.exit(0)
+
+if __name__ == '__main__':
+    main()

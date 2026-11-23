@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Condition G grep (docs/search-grep.md). Output that is not shown directly to the
+# model (redirections, most pipes) comes from GNU grep unchanged.
+real=/usr/bin/grep
+[ -x "$real" ] || real=/bin/grep
+bundle_dir="$(cd -- "$(dirname -- "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+python="${bundle_dir}/.venv/bin/python"
+if [ -n "${ACI_GREP_RAW:-}" ] || [ ! -p /dev/stdout ] || [ ! -x "$python" ]; then
+  exec -a grep "$real" "$@"
+fi
+exec "$python" -I "${bundle_dir}/grep_dispatch.py" "$@"

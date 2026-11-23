@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Run one unmodified SWE-agent tool (upstream/<bundle>/bin/<name>) the way SWE-agent installs it:
+# its bundle bin directories on PATH, its lib directories on PYTHONPATH (what each upstream
+# install.sh exports), and this bundle's private venv as `python`/`python3`. State lives in
+# SWE-agent's registry file (/root/.swe-agent-env), so it carries across mini's fresh shells.
+set -eu
+name="$(basename "$0")"
+bundle_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+upstream="$bundle_dir/upstream"
+for bin in "$upstream"/*/bin; do PATH="$bin:$PATH"; done
+for lib in "$upstream"/*/lib; do [ -d "$lib" ] && PYTHONPATH="$lib${PYTHONPATH:+:$PYTHONPATH}"; done
+export PATH="$bundle_dir/.venv/bin:$PATH" PYTHONPATH
+tool="$(ls "$upstream"/*/bin/"$name")"
+case "$(head -1 "$tool")" in
+  "#!"*python*) exec "$bundle_dir/.venv/bin/python" "$tool" "$@" ;;
+  *) exec bash "$tool" "$@" ;;
+esac
