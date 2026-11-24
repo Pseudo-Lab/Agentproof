@@ -6,7 +6,8 @@
 Outputs results/<stage>/<run-id>/:
   manifest.json            settings, hashes, commit, execution order
   trials_all.jsonl         every trial (all conditions, E02 fields)
-  trials.jsonl             B/C only, mapped to the shared AgentProof schema (baseline/intervention)
+  trials.jsonl             B/C2 only, mapped to the shared AgentProof schema (baseline/intervention).
+                           Runs before 2026-11-24 mapped C here by mistake; src/rebuild_shared.py corrects them.
   summary.json             shared harness summary of trials.jsonl
   analysis.json            E02 analysis (pre-registered contrasts, cells, mechanism, cost)
   traces/<trial>/          model/tool items (encrypted reasoning removed) and final output files
@@ -33,7 +34,7 @@ import tasks as T
 import agent as A
 from analyze import analyze
 
-COND_TO_SHARED = {'B': 'baseline', 'C': 'intervention'}
+COND_TO_SHARED = {'B': 'baseline', 'C2': 'intervention'}  # C2 = pre-registered primary intervention (P1)
 MAX_CONSECUTIVE_API_ERRORS = 3  # infra guard added after main-001 (network loss); not a design change
 COND_CONFIG = {'A': 'reference', 'B': 'baseline', 'C': 'intervention', 'C2': 'intervention_loc'}
 
@@ -240,7 +241,7 @@ def main():
     manifest['planned_trials'] = len(order)
     manifest['spent_usd_estimate'] = round(budget.spent, 6)
     write_json(out / 'manifest.json', manifest)
-    if {'B', 'C'} <= set(plan['conditions']) and len(all_rows) == len(order):
+    if {'B', 'C2'} <= set(plan['conditions']) and len(all_rows) == len(order):
         from summarize import summarize
         write_json(out / 'summary.json', summarize(out))
     write_json(out / 'analysis.json', analyze(all_rows, plan))
